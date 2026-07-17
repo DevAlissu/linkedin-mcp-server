@@ -3935,6 +3935,7 @@ class LinkedInExtractor:
             {"selectors": selectors},
         )
         return result
+
     async def _fill_field_by_label(
         self,
         label_text: str,
@@ -4254,9 +4255,7 @@ class LinkedInExtractor:
                 return True
         return False
 
-    async def _fill_by_accessible_name(
-        self, labels: list[str], value: str
-    ) -> bool:
+    async def _fill_by_accessible_name(self, labels: list[str], value: str) -> bool:
         """Fill a dialog control matched by its accessible name.
 
         Unlike ``_fill_field_by_label`` (which only inspects ``<label>``
@@ -5019,4 +5018,3 @@ class LinkedInExtractor:
             dropdowns=dropdowns,
             required_fields={"Title"},
         )
-
