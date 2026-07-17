@@ -20,7 +20,9 @@ from linkedin_mcp_server.error_handler import raise_tool_error
 logger = logging.getLogger(__name__)
 
 
-def register_profile_edit_tools(mcp: FastMCP, *, tool_timeout: float = DEFAULT_TOOL_TIMEOUT_SECONDS) -> None:
+def register_profile_edit_tools(
+    mcp: FastMCP, *, tool_timeout: float = DEFAULT_TOOL_TIMEOUT_SECONDS
+) -> None:
     """Register all profile editing tools with the MCP server."""
 
     @mcp.tool(
