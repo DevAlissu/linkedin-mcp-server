@@ -37,6 +37,7 @@ from linkedin_mcp_server.scraping.link_metadata import (
     dedupe_references,
 )
 
+from . import i18n
 from .fields import COMPANY_SECTIONS, PERSON_SECTIONS
 
 if TYPE_CHECKING:
@@ -1501,13 +1502,16 @@ class LinkedInExtractor:
                 logger.debug("Detail section content did not appear on %s", url)
 
         # Detail pages paginate with a "Show more" button inside <main>, not scroll.
-        # Click it until it disappears or the budget runs out.
+        # Click it until it disappears or the budget runs out. The button label
+        # is localized (PT: "Mostrar tudo"/"Ver mais"), so match the i18n table.
         if is_details:
             max_clicks = max_scrolls if max_scrolls is not None else 5
+            show_more_re = re.compile(
+                r"^\s*(?:" + "|".join(re.escape(t) for t in i18n.SHOW_MORE) + r")\b",
+                re.IGNORECASE,
+            )
             for i in range(max_clicks):
-                button = self._page.locator("main button").filter(
-                    has_text=re.compile(r"^Show (more|all)\b", re.IGNORECASE)
-                )
+                button = self._page.locator("main button").filter(has_text=show_more_re)
                 try:
                     if await button.count() == 0:
                         logger.debug("No 'Show more' button after %d clicks", i)
@@ -4053,17 +4057,7 @@ class LinkedInExtractor:
         times out and the next candidate is tried.
         """
         dialog = self._page.locator(_DIALOG_SELECTOR).last
-        save_labels = [
-            "Salvar",
-            "Save",
-            "Guardar",
-            "Aplicar",
-            "Apply",
-            "Concluir",
-            "Concluído",
-            "Done",
-        ]
-        for name in save_labels:
+        for name in i18n.SAVE_BUTTONS:
             btn = dialog.get_by_role(
                 "button", name=re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
             )
@@ -4091,10 +4085,9 @@ class LinkedInExtractor:
         # Last resort: dispatch a click via JS on a save-labelled, enabled
         # button in the topmost dialog — ignores any overlapping element.
         clicked = await self._page.evaluate(
-            """() => {
+            """(words) => {
                 const norm = v => (v || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                const words = ['salvar', 'save', 'guardar', 'aplicar', 'apply',
-                    'concluir', 'concluído', 'done'];
+                const wanted = words.map(w => w.toLowerCase());
                 const dialogs = document.querySelectorAll('[role="dialog"], dialog[open]');
                 const scope = dialogs.length ? dialogs[dialogs.length - 1] : document;
                 const btns = Array.from(scope.querySelectorAll('button, [role="button"]'));
@@ -4103,7 +4096,7 @@ class LinkedInExtractor:
                     (b.getAttribute('aria-label') || '') + ' ' + (b.innerText || b.textContent || '')
                 ).split(/\\s+/);
                 const match = btns.find(
-                    b => !disabled(b) && nameOf(b).some(w => words.includes(w))
+                    b => !disabled(b) && nameOf(b).some(w => wanted.includes(w))
                 );
                 if (match) {
                     match.scrollIntoView({ block: 'center' });
@@ -4111,7 +4104,8 @@ class LinkedInExtractor:
                     return true;
                 }
                 return false;
-            }"""
+            }""",
+            i18n.SAVE_BUTTONS,
         )
         if clicked:
             await asyncio.sleep(1.5)
@@ -4253,6 +4247,31 @@ class LinkedInExtractor:
         for label in labels:
             if await self._fill_field_by_label(label, value, exact=exact):
                 return True
+        return False
+
+    async def _fill_localized(self, label: str, value: str) -> bool:
+        """Fill a field given its canonical English label.
+
+        Expands the label to its localized aliases via :mod:`i18n`, then tries
+        accessible-name matching (reaches aria-label-only fields) before falling
+        back to ``<label>`` matching.
+        """
+        aliases = i18n.field_aliases(label)
+        return await self._fill_by_accessible_name(
+            aliases, value
+        ) or await self._fill_field_by_labels(aliases, value)
+
+    async def _select_localized(self, label: str, value: str) -> bool:
+        """Select a dropdown option given canonical English label and value.
+
+        Both the label and the option value are expanded to localized aliases
+        (e.g. label "Employment type"/"Tipo de vínculo", value "January"/
+        "Janeiro"), and every combination is tried until one matches.
+        """
+        for label_alias in i18n.field_aliases(label):
+            for value_alias in i18n.value_aliases(value):
+                if await self._select_dropdown_by_label(label_alias, value_alias):
+                    return True
         return False
 
     async def _fill_by_accessible_name(self, labels: list[str], value: str) -> bool:
@@ -4399,21 +4418,18 @@ class LinkedInExtractor:
 
         fields_updated: list[str] = []
 
-        async def fill(labels: list[str], value: str) -> bool:
-            # Prefer accessible-name matching (reaches aria-label-only fields
-            # like the headline textarea); fall back to <label> matching.
-            return await self._fill_by_accessible_name(
-                labels, value
-            ) or await self._fill_field_by_labels(labels, value)
+        # Field labels resolve to localized aliases through the central i18n
+        # table; _fill_localized tries accessible-name then <label> matching.
+        fill = self._fill_localized
 
         if first_name is not None:
-            if await fill(["First name", "Nome"], first_name):
+            if await fill("First name", first_name):
                 fields_updated.append("first_name")
         if last_name is not None:
-            if await fill(["Last name", "Sobrenome"], last_name):
+            if await fill("Last name", last_name):
                 fields_updated.append("last_name")
         if headline is not None:
-            if await fill(["Headline", "Título", "Cargo"], headline):
+            if await fill("Headline", headline):
                 fields_updated.append("headline")
             else:
                 # In PT-BR (and other locales) the headline is a contenteditable
@@ -4437,9 +4453,9 @@ class LinkedInExtractor:
             # Try City first (plain text input) — fills directly without typeahead.
             # Country/Region is a typeahead; trying it first would short-circuit City
             # and silently fail since LinkedIn ignores unconfirmed typeahead values.
-            if await fill(["City", "Cidade"], location):
+            if await fill("City", location):
                 fields_updated.append("location")
-            elif await fill(["Country/Region", "País/Região"], location):
+            elif await fill("Country/Region", location):
                 # Country/Region requires selecting from typeahead suggestions
                 await asyncio.sleep(1.0)
                 typeahead = self._page.locator(
@@ -4449,10 +4465,10 @@ class LinkedInExtractor:
                     await typeahead.first.click()
                     await asyncio.sleep(0.5)
                     fields_updated.append("location")
-            elif await fill(["Location", "Localização"], location):
+            elif await fill("Location", location):
                 fields_updated.append("location")
         if industry is not None:
-            if await fill(["Industry", "Setor"], industry):
+            if await fill("Industry", industry):
                 # Industry is a custom autocomplete — must select from the suggestions
                 # list so LinkedIn registers the value; DOM value alone is ignored on save.
                 # Only count it as updated when a suggestion was actually selected.
@@ -4603,18 +4619,19 @@ class LinkedInExtractor:
                 "status": "edit_failed",
                 "message": f"Add {section_slug} form did not open.",
                 "section": section_slug,
+                "anchors_seen": await self._edit_anchors(),
             }
 
         await asyncio.sleep(0.5)
         fields_filled: list[str] = []
 
         for label, value in fields.items():
-            if await self._fill_field_by_label(label, value):
+            if await self._fill_localized(label, value):
                 fields_filled.append(label)
 
         if dropdowns:
             for label, value in dropdowns.items():
-                if await self._select_dropdown_by_label(label, value):
+                if await self._select_localized(label, value):
                     fields_filled.append(label)
 
         if not fields_filled:
@@ -4623,6 +4640,7 @@ class LinkedInExtractor:
                 "status": "no_changes",
                 "message": f"Could not fill any fields for {section_slug}.",
                 "section": section_slug,
+                "labels_seen": await self._dialog_field_labels(),
             }
 
         # Check required fields are filled before saving to avoid partial entries
@@ -4638,14 +4656,20 @@ class LinkedInExtractor:
                 }
 
         saved = await self._click_save_in_dialog()
-        await asyncio.sleep(1.5)
 
+        if not saved:
+            return {
+                "url": url,
+                "status": "save_failed",
+                "message": "Could not find the Save button.",
+                "section": section_slug,
+                "fields_filled": fields_filled,
+                "buttons_seen": await self._dialog_buttons(),
+            }
         return {
             "url": url,
-            "status": "saved" if saved else "save_failed",
-            "message": f"Added {section_slug} entry: {', '.join(fields_filled)}"
-            if saved
-            else "Could not find the Save button.",
+            "status": "saved",
+            "message": f"Added {section_slug} entry: {', '.join(fields_filled)}",
             "section": section_slug,
             "fields_filled": fields_filled,
         }
@@ -4731,11 +4755,11 @@ class LinkedInExtractor:
                 "url": url,
                 "status": "edit_failed",
                 "message": "Add skill form did not open.",
+                "anchors_seen": await self._edit_anchors(),
             }
 
-        # Fill the skill name field
-        # Note: _fill_field_by_label is case-insensitive so one call is sufficient
-        filled = await self._fill_field_by_label("Skill", skill_name)
+        # Fill the skill name field (localized label aliases via i18n)
+        filled = await self._fill_localized("Skill", skill_name)
         if not filled:
             # Try the first input in the dialog
             input_el = self._page.locator('dialog input, [role="dialog"] input').first
@@ -4952,17 +4976,19 @@ class LinkedInExtractor:
                 "url": url,
                 "status": "edit_failed",
                 "message": "Add language form did not open.",
+                "anchors_seen": await self._edit_anchors(),
             }
 
-        # Fill the language name autocomplete and select from suggestions
-        filled = await self._fill_field_by_label("Language", name)
-        if not filled:
-            filled = await self._fill_field_by_label("Name", name)
+        # Fill the language name autocomplete (localized label aliases via i18n)
+        filled = await self._fill_localized(
+            "Language", name
+        ) or await self._fill_localized("Name", name)
         if not filled:
             return {
                 "url": url,
                 "status": "edit_failed",
                 "message": "Could not fill the language name field.",
+                "labels_seen": await self._dialog_field_labels(),
             }
 
         # Language name requires typeahead selection — same as Skills and Industry
@@ -4976,9 +5002,9 @@ class LinkedInExtractor:
         else:
             logger.debug("No typeahead suggestions for language %r", name)
 
-        # Select proficiency level if provided
+        # Select proficiency level if provided (localized label + value aliases)
         if proficiency:
-            await self._select_dropdown_by_label("Proficiency", proficiency)
+            await self._select_localized("Proficiency", proficiency)
 
         saved = await self._click_save_in_dialog()
         await asyncio.sleep(1.0)
