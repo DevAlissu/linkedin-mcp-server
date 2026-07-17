@@ -317,12 +317,20 @@ class ProfileEditMixin:
                         await target.scroll_into_view_if_needed(timeout=3000)
                     except Exception:
                         pass
-                    await target.click(timeout=5000)
-                    await self._page.wait_for_selector(
-                        _DIALOG_SELECTOR, timeout=timeout
-                    )
-                    await asyncio.sleep(1.0)
-                    return True
+                    # A Premium upsell panel can overlap the pencil and
+                    # intercept a normal click, so escalate normal → force → JS.
+                    if await self._click_robustly(target, timeout=5000):
+                        try:
+                            await self._page.wait_for_selector(
+                                _DIALOG_SELECTOR, timeout=timeout
+                            )
+                            await asyncio.sleep(1.0)
+                            return True
+                        except PlaywrightTimeoutError:
+                            logger.debug(
+                                "Dialog did not mount after pencil click for %s",
+                                pencil_href,
+                            )
             except Exception:
                 logger.debug(
                     "Pencil-click overlay open failed for %s",
@@ -330,16 +338,36 @@ class ProfileEditMixin:
                     exc_info=True,
                 )
 
-        # Fallback: navigate to the overlay route with the SPA now warm.
+        # Fallback: navigate to the overlay route with the SPA now warm. Require
+        # a real dialog — matching a stray ``main form`` here is a false positive
+        # that leaves later dialog-scoped fills with nothing to act on.
         await self._navigate_to_page(overlay_url)
         await detect_rate_limit(self._page)
         try:
-            await self._page.wait_for_selector(
-                "dialog[open], [role='dialog'], main form", timeout=timeout
-            )
+            await self._page.wait_for_selector(_DIALOG_SELECTOR, timeout=timeout)
             await asyncio.sleep(1.0)
             return True
         except PlaywrightTimeoutError:
+            return False
+
+    async def _click_robustly(self, target: Any, *, timeout: int = 5000) -> bool:
+        """Click a locator, escalating normal → force → JS dispatch.
+
+        LinkedIn overlays (e.g. Premium upsell panels) can cover an element and
+        intercept a normal click; force bypasses the overlap check and a JS
+        ``el.click()`` ignores pointer interception entirely.
+        """
+        for force in (False, True):
+            try:
+                await target.click(timeout=timeout, force=force)
+                return True
+            except Exception:
+                logger.debug("Robust click failed (force=%s)", force, exc_info=True)
+        try:
+            await target.evaluate("el => el.click()")
+            return True
+        except Exception:
+            logger.debug("Robust click failed (JS dispatch)", exc_info=True)
             return False
 
     async def _fill_field_by_labels(
