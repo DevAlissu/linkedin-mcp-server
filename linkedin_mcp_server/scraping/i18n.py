@@ -156,6 +156,42 @@ SHOW_MORE: list[str] = [
     "Carregar mais",
 ]
 
+# ---------------------------------------------------------------------------
+# Messaging surface — aria-labels/placeholders LinkedIn localizes
+# ---------------------------------------------------------------------------
+MESSAGE_COMPOSE_BOX: list[str] = [
+    "Write a message",
+    "Escreva uma mensagem",
+    "Escrever mensagem",
+]
+
+RECIPIENT_PICKER: list[str] = ["Type a name", "Digite um nome"]
+
+RECIPIENT_PICKER_MULTI: list[str] = ["multiple names", "vários nomes"]
+
+SEND_BUTTON: list[str] = ["Send", "Enviar"]
+
+DRAFT_CLOSE: list[str] = [
+    "Close your draft conversation",
+    "Dismiss",
+    "Close",
+    "Fechar",
+    "Descartar",
+    "Ignorar",
+]
+
+
+def attr_contains_selector(
+    base: str, attr: str, values: list[str], *, suffix: str = ""
+) -> str:
+    """Build a CSS union selector matching *base* elements whose *attr*
+    contains any alias, case-insensitively (CSS ``i`` flag).
+
+    Example: ``attr_contains_selector("button", "aria-label", SEND_BUTTON)``
+    → ``button[aria-label*="Send" i], button[aria-label*="Enviar" i]``.
+    """
+    return ", ".join(f'{base}[{attr}*="{v}" i]{suffix}' for v in values)
+
 
 def field_aliases(label: str) -> list[str]:
     """Localized aliases for a field label (the label itself if unmapped)."""

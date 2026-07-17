@@ -102,29 +102,37 @@ _DIALOG_PREMIUM_LINK_SELECTOR = (
 _DIALOG_TEXTAREA_SELECTOR = '[role="dialog"] textarea, dialog textarea'
 
 _MESSAGING_COMPOSE_LINK_SELECTOR = 'main a[href*="/messaging/compose/"]'
-_MESSAGING_COMPOSE_SELECTOR = (
-    'div[role="textbox"][contenteditable="true"][aria-label*="Write a message"]'
+
+# The messaging surface labels its controls in the account's UI language, so
+# every text-bearing selector is generated from the i18n alias tables
+# (case-insensitive via the CSS ``i`` flag). Structural alternatives that do
+# not depend on text are kept as fallbacks.
+_MESSAGING_COMPOSE_SELECTOR = i18n.attr_contains_selector(
+    'div[role="textbox"][contenteditable="true"]',
+    "aria-label",
+    i18n.MESSAGE_COMPOSE_BOX,
 )
 _MESSAGING_COMPOSE_FALLBACK_SELECTORS = (
     _MESSAGING_COMPOSE_SELECTOR,
     'main div[role="textbox"][contenteditable="true"]',
-    'main [contenteditable="true"][aria-label*="message"]',
+    'main [contenteditable="true"][aria-label*="message" i], '
+    'main [contenteditable="true"][aria-label*="mensagem" i]',
 )
 _MESSAGING_ENABLED_SEND_SELECTOR = (
     'button[type="submit"]:not([disabled]), '
-    'button[aria-label*="Send"]:not([disabled]), '
-    'button[aria-label*="send"]:not([disabled])'
+    + i18n.attr_contains_selector(
+        "button", "aria-label", i18n.SEND_BUTTON, suffix=":not([disabled])"
+    )
 )
 _MESSAGING_RECIPIENT_PICKER_SELECTOR = (
-    'input[placeholder*="Type a name"], '
-    'input[aria-label*="Type a name"], '
-    'input[placeholder*="multiple names"]'
+    i18n.attr_contains_selector("input", "placeholder", i18n.RECIPIENT_PICKER)
+    + ", "
+    + i18n.attr_contains_selector("input", "aria-label", i18n.RECIPIENT_PICKER)
+    + ", "
+    + i18n.attr_contains_selector("input", "placeholder", i18n.RECIPIENT_PICKER_MULTI)
 )
-_MESSAGING_CLOSE_SELECTOR = (
-    'button[aria-label*="Close your draft conversation"], '
-    'button[aria-label="Dismiss"], '
-    'button[aria-label*="Dismiss"], '
-    'button[aria-label*="Close"]'
+_MESSAGING_CLOSE_SELECTOR = i18n.attr_contains_selector(
+    "button", "aria-label", i18n.DRAFT_CLOSE
 )
 
 # Shared JS function that walks up from any /messaging/compose/ anchor
@@ -3771,15 +3779,14 @@ class LinkedInExtractor(ProfileEditMixin):
         # Selectors use only role + contenteditable + aria-label (ARIA attributes,
         # not layout class names) so they are stable across LinkedIn UI changes.
         focused = await self._page.evaluate(
-            """() => {
-                const el = document.querySelector(
-                    'div[role="textbox"][contenteditable="true"][aria-label*="Write a message"],'
-                    + 'div[role="textbox"][contenteditable="true"]'
-                );
+            """(selector) => {
+                const el = document.querySelector(selector);
                 if (!el) return false;
                 el.focus();
                 return true;
-            }"""
+            }""",
+            _MESSAGING_COMPOSE_SELECTOR
+            + ', div[role="textbox"][contenteditable="true"]',
         )
         if not focused:
             await self._dismiss_message_ui()
