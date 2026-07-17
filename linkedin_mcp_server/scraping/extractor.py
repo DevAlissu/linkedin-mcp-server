@@ -4043,16 +4043,334 @@ class LinkedInExtractor:
         return bool(selected)
 
     async def _click_save_in_dialog(self, *, timeout: int = 5000) -> bool:
-        """Click the Save button inside an open dialog."""
-        for text in ["Save", "Apply", "Done"]:
-            btn = self._page.locator(f"{_DIALOG_SELECTOR} button, main button").filter(
-                has_text=re.compile(rf"^{text}$", re.IGNORECASE)
+        """Click the Save/primary button inside the open dialog.
+
+        Matches by the button's *accessible name* (robust to nested
+        screen-reader spans and aria-labels that break anchored text matching)
+        against a per-locale table of save labels (EN + PT-BR at least), scoped
+        to the topmost dialog. Disabled buttons are skipped — a click on one
+        times out and the next candidate is tried.
+        """
+        dialog = self._page.locator(_DIALOG_SELECTOR).last
+        save_labels = [
+            "Salvar",
+            "Save",
+            "Guardar",
+            "Aplicar",
+            "Apply",
+            "Concluir",
+            "Concluído",
+            "Done",
+        ]
+        for name in save_labels:
+            btn = dialog.get_by_role(
+                "button", name=re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
             )
-            if await btn.count() > 0:
-                await btn.first.click(timeout=timeout)
-                await asyncio.sleep(1.5)
+            if await btn.count() == 0:
+                continue
+            # A Premium upsell panel can overlap the footer and intercept a
+            # normal click, so retry with force (bypasses the overlap check).
+            for force in (False, True):
+                try:
+                    await btn.first.scroll_into_view_if_needed(timeout=2000)
+                except Exception:
+                    pass
+                try:
+                    await btn.first.click(timeout=timeout, force=force)
+                    await asyncio.sleep(1.5)
+                    return True
+                except Exception:
+                    logger.debug(
+                        "Save click failed for %r (force=%s)",
+                        name,
+                        force,
+                        exc_info=True,
+                    )
+
+        # Last resort: dispatch a click via JS on a save-labelled, enabled
+        # button in the topmost dialog — ignores any overlapping element.
+        clicked = await self._page.evaluate(
+            """() => {
+                const norm = v => (v || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                const words = ['salvar', 'save', 'guardar', 'aplicar', 'apply',
+                    'concluir', 'concluído', 'done'];
+                const dialogs = document.querySelectorAll('[role="dialog"], dialog[open]');
+                const scope = dialogs.length ? dialogs[dialogs.length - 1] : document;
+                const btns = Array.from(scope.querySelectorAll('button, [role="button"]'));
+                const disabled = b => b.disabled || b.getAttribute('aria-disabled') === 'true';
+                const nameOf = b => norm(
+                    (b.getAttribute('aria-label') || '') + ' ' + (b.innerText || b.textContent || '')
+                ).split(/\\s+/);
+                const match = btns.find(
+                    b => !disabled(b) && nameOf(b).some(w => words.includes(w))
+                );
+                if (match) {
+                    match.scrollIntoView({ block: 'center' });
+                    match.click();
+                    return true;
+                }
+                return false;
+            }"""
+        )
+        if clicked:
+            await asyncio.sleep(1.5)
+            return True
+        return False
+
+    async def _dialog_buttons(self) -> list[dict[str, Any]]:
+        """Return the buttons in the topmost open dialog (diagnostics).
+
+        Surfaced in edit responses when the Save button could not be clicked,
+        so the exact button texts, aria-labels, and disabled state are known
+        without blind guessing.
+        """
+        try:
+            buttons = await self._page.evaluate(
+                """() => {
+                    const norm = v => (v || '').replace(/\\s+/g, ' ').trim();
+                    const dialogs = document.querySelectorAll('[role="dialog"], dialog[open]');
+                    const scope = dialogs.length ? dialogs[dialogs.length - 1] : document;
+                    return Array.from(
+                        scope.querySelectorAll('button, [role="button"]')
+                    ).map(b => ({
+                        text: norm(b.innerText || b.textContent).slice(0, 40),
+                        aria: norm(b.getAttribute('aria-label') || '').slice(0, 40),
+                        disabled: !!(b.disabled || b.getAttribute('aria-disabled') === 'true'),
+                    })).slice(0, 30);
+                }"""
+            )
+            return buttons if isinstance(buttons, list) else []
+        except Exception:
+            return []
+
+    async def _edit_anchors(self) -> list[str]:
+        """Return profile-page hrefs pointing at edit/overlay controls.
+
+        Diagnostic for when an edit pencil cannot be located: navigates to the
+        profile and reports the real href pattern LinkedIn uses per section, so
+        the pencil selector can be corrected without blind guessing.
+        """
+        try:
+            username = await self._resolve_my_username()
+            await self._navigate_to_page(f"https://www.linkedin.com/in/{username}/")
+            await asyncio.sleep(1.0)
+            hrefs = await self._page.evaluate(
+                """() => Array.from(document.querySelectorAll('a[href]'))
+                    .map(a => a.getAttribute('href') || '')
+                    .filter(h => /\\/(edit|overlay)\\//.test(h))
+                    .filter((h, i, arr) => arr.indexOf(h) === i)
+                    .slice(0, 40)"""
+            )
+            return hrefs if isinstance(hrefs, list) else []
+        except Exception:
+            return []
+
+    async def _about_diagnostics(self) -> dict[str, Any]:
+        """Structure snapshot for the About editor (diagnostics on failure)."""
+        try:
+            return await self._page.evaluate(
+                """() => ({
+                    url: location.href,
+                    dialogs: document.querySelectorAll('[role="dialog"], dialog[open]').length,
+                    contenteditables: document.querySelectorAll('[contenteditable="true"]').length,
+                    textareas: document.querySelectorAll('textarea').length,
+                    buttons: Array.from(document.querySelectorAll(
+                        '[role="dialog"] button, dialog button, main button'
+                    )).map(b => ({
+                        text: (b.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 30),
+                        aria: (b.getAttribute('aria-label') || '').slice(0, 30),
+                    })).filter(b => b.text || b.aria).slice(0, 20),
+                })"""
+            )
+        except Exception:
+            return {}
+
+    async def _open_edit_overlay(
+        self,
+        *,
+        overlay_url: str,
+        pencil_href: str | None = None,
+        timeout: int = 15000,
+    ) -> bool:
+        """Open a profile edit/create overlay reliably.
+
+        LinkedIn's edit modals frequently do not mount on a cold direct
+        navigation to the overlay URL — the client router only opens the
+        dialog as an in-app transition. So warm the SPA by loading the
+        profile page first, then prefer clicking the in-page pencil anchor
+        (a genuine in-app action), falling back to navigating to the overlay
+        route with the SPA now warm. Returns True once a dialog is visible.
+        """
+        username = await self._resolve_my_username()
+        await self._navigate_to_page(f"https://www.linkedin.com/in/{username}/")
+        await detect_rate_limit(self._page)
+        await asyncio.sleep(1.0)
+
+        if pencil_href:
+            anchor = self._page.locator(f'a[href*="{pencil_href}"]')
+            try:
+                if await anchor.count() > 0:
+                    target = anchor.first
+                    try:
+                        await target.scroll_into_view_if_needed(timeout=3000)
+                    except Exception:
+                        pass
+                    await target.click(timeout=5000)
+                    await self._page.wait_for_selector(
+                        _DIALOG_SELECTOR, timeout=timeout
+                    )
+                    await asyncio.sleep(1.0)
+                    return True
+            except Exception:
+                logger.debug(
+                    "Pencil-click overlay open failed for %s",
+                    pencil_href,
+                    exc_info=True,
+                )
+
+        # Fallback: navigate to the overlay route with the SPA now warm.
+        await self._navigate_to_page(overlay_url)
+        await detect_rate_limit(self._page)
+        try:
+            await self._page.wait_for_selector(
+                "dialog[open], [role='dialog'], main form", timeout=timeout
+            )
+            await asyncio.sleep(1.0)
+            return True
+        except PlaywrightTimeoutError:
+            return False
+
+    async def _fill_field_by_labels(
+        self, labels: list[str], value: str, *, exact: bool = False
+    ) -> bool:
+        """Fill the first field whose label matches any of *labels*.
+
+        LinkedIn renders field labels in the account's UI language, so each
+        logical field is tried against several localized aliases (e.g.
+        ["Headline", "Título"]) until one matches.
+        """
+        for label in labels:
+            if await self._fill_field_by_label(label, value, exact=exact):
                 return True
         return False
+
+    async def _fill_by_accessible_name(
+        self, labels: list[str], value: str
+    ) -> bool:
+        """Fill a dialog control matched by its accessible name.
+
+        Unlike ``_fill_field_by_label`` (which only inspects ``<label>``
+        elements), this resolves each control's accessible name from
+        ``aria-label``, ``aria-labelledby``, an associated/wrapping
+        ``<label>``, or ``placeholder`` — so it reaches fields like the
+        headline textarea that LinkedIn labels via ``aria-label`` only.
+        Matches case-insensitively against any of *labels* (localized
+        aliases), and handles input, textarea, and contenteditable editors.
+        """
+        result = await self._page.evaluate(
+            """({ labels, value }) => {
+                const norm = v => (v || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                const wants = labels.map(norm).filter(Boolean);
+                const dialogs = document.querySelectorAll('[role="dialog"], dialog[open]');
+                const scope = dialogs.length ? dialogs[dialogs.length - 1] : document;
+                const accName = el => {
+                    const al = el.getAttribute('aria-label');
+                    if (al) return al;
+                    const lb = el.getAttribute('aria-labelledby');
+                    if (lb) {
+                        const t = lb.split(/\\s+/).map(id => {
+                            const e = document.getElementById(id);
+                            return e ? (e.innerText || e.textContent || '') : '';
+                        }).join(' ');
+                        if (t.trim()) return t;
+                    }
+                    if (el.id) {
+                        const lab = scope.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+                        if (lab) return lab.innerText || lab.textContent || '';
+                    }
+                    const wrap = el.closest('label');
+                    if (wrap) return wrap.innerText || wrap.textContent || '';
+                    return el.getAttribute('placeholder') || '';
+                };
+                const controls = Array.from(scope.querySelectorAll(
+                    'input, textarea, [contenteditable="true"], [role="combobox"], [role="textbox"]'
+                ));
+                for (const el of controls) {
+                    const name = norm(accName(el));
+                    if (!name || !wants.some(w => name.includes(w))) continue;
+                    if (el.isContentEditable) {
+                        el.focus();
+                        el.textContent = value;
+                        el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+                        return { ok: true, tag: 'contenteditable', name };
+                    }
+                    const proto = el.tagName === 'TEXTAREA'
+                        ? window.HTMLTextAreaElement.prototype
+                        : window.HTMLInputElement.prototype;
+                    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                    setter.call(el, value);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    return { ok: true, tag: el.tagName, name };
+                }
+                return { ok: false };
+            }""",
+            {"labels": labels, "value": value},
+        )
+        if isinstance(result, dict) and result.get("ok"):
+            logger.debug(
+                "Filled control %r (accessible name %r)",
+                result.get("tag"),
+                result.get("name"),
+            )
+            return True
+        return False
+
+    async def _dialog_field_labels(self) -> list[dict[str, Any]]:
+        """Return the controls in the open dialog with their accessible names.
+
+        Surfaced in edit responses when no field could be filled, so the exact
+        control tags and localized accessible names are known without blind
+        guessing. Reports every input/textarea/contenteditable/combobox — not
+        just ``<label>`` elements — since key fields (e.g. the headline) are
+        labeled via ``aria-label`` rather than a ``<label>`` tag.
+        """
+        try:
+            controls = await self._page.evaluate(
+                """() => {
+                    const dialogs = document.querySelectorAll('[role="dialog"], dialog[open]');
+                    const scope = dialogs.length ? dialogs[dialogs.length - 1] : document;
+                    const accName = el => {
+                        const al = el.getAttribute('aria-label');
+                        if (al) return al;
+                        const lb = el.getAttribute('aria-labelledby');
+                        if (lb) {
+                            const t = lb.split(/\\s+/).map(id => {
+                                const e = document.getElementById(id);
+                                return e ? (e.innerText || e.textContent || '') : '';
+                            }).join(' ');
+                            if (t.trim()) return t;
+                        }
+                        if (el.id) {
+                            const lab = scope.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+                            if (lab) return lab.innerText || lab.textContent || '';
+                        }
+                        const wrap = el.closest('label');
+                        if (wrap) return wrap.innerText || wrap.textContent || '';
+                        return el.getAttribute('placeholder') || '';
+                    };
+                    return Array.from(scope.querySelectorAll(
+                        'input, textarea, [contenteditable="true"], [role="combobox"], [role="textbox"]'
+                    )).map(el => ({
+                        tag: el.tagName + (el.type ? '[' + el.type + ']' : ''),
+                        name: (accName(el) || '').replace(/\\s+/g, ' ').trim().slice(0, 60),
+                        editable: el.isContentEditable,
+                    })).slice(0, 40);
+                }"""
+            )
+            return controls if isinstance(controls, list) else []
+        except Exception:
+            return []
 
     async def edit_profile_intro(
         self,
@@ -4070,40 +4388,59 @@ class LinkedInExtractor:
         """
         username = await self._resolve_my_username()
         url = f"https://www.linkedin.com/in/{username}/overlay/edit/intro/"
-        await self._navigate_to_page(url)
-        await detect_rate_limit(self._page)
-
-        # Wait for the edit form to appear
-        try:
-            await self._page.wait_for_selector(
-                "dialog[open], [role='dialog'], main form", timeout=10000
-            )
-        except PlaywrightTimeoutError:
+        if not await self._open_edit_overlay(
+            overlay_url=url, pencil_href="/edit/intro/"
+        ):
             return {
                 "url": url,
                 "status": "edit_failed",
                 "message": "Edit intro form did not open.",
+                "anchors_seen": await self._edit_anchors(),
             }
 
-        await asyncio.sleep(1.0)
         fields_updated: list[str] = []
 
+        async def fill(labels: list[str], value: str) -> bool:
+            # Prefer accessible-name matching (reaches aria-label-only fields
+            # like the headline textarea); fall back to <label> matching.
+            return await self._fill_by_accessible_name(
+                labels, value
+            ) or await self._fill_field_by_labels(labels, value)
+
         if first_name is not None:
-            if await self._fill_field_by_label("First name", first_name):
+            if await fill(["First name", "Nome"], first_name):
                 fields_updated.append("first_name")
         if last_name is not None:
-            if await self._fill_field_by_label("Last name", last_name):
+            if await fill(["Last name", "Sobrenome"], last_name):
                 fields_updated.append("last_name")
         if headline is not None:
-            if await self._fill_field_by_label("Headline", headline):
+            if await fill(["Headline", "Título", "Cargo"], headline):
                 fields_updated.append("headline")
+            else:
+                # In PT-BR (and other locales) the headline is a contenteditable
+                # <div> with no accessible name and no linked <label>, so no
+                # name/label match reaches it. It is the only rich editor in the
+                # intro dialog — target it structurally and fill it directly.
+                editor = self._page.locator(
+                    '[role="dialog"] [contenteditable="true"], '
+                    'dialog [contenteditable="true"]'
+                ).first
+                try:
+                    await editor.wait_for(state="visible", timeout=3000)
+                    await editor.click()
+                    await editor.fill(headline)
+                    fields_updated.append("headline")
+                except Exception:
+                    logger.debug(
+                        "Headline contenteditable fallback failed", exc_info=True
+                    )
         if location is not None:
             # Try City first (plain text input) — fills directly without typeahead.
             # Country/Region is a typeahead; trying it first would short-circuit City
             # and silently fail since LinkedIn ignores unconfirmed typeahead values.
-            if await self._fill_field_by_label("City", location):
+            if await fill(["City", "Cidade"], location):
                 fields_updated.append("location")
-            elif await self._fill_field_by_label("Country/Region", location):
+            elif await fill(["Country/Region", "País/Região"], location):
                 # Country/Region requires selecting from typeahead suggestions
                 await asyncio.sleep(1.0)
                 typeahead = self._page.locator(
@@ -4113,10 +4450,10 @@ class LinkedInExtractor:
                     await typeahead.first.click()
                     await asyncio.sleep(0.5)
                     fields_updated.append("location")
-            elif await self._fill_field_by_label("Location", location):
+            elif await fill(["Location", "Localização"], location):
                 fields_updated.append("location")
         if industry is not None:
-            if await self._fill_field_by_label("Industry", industry):
+            if await fill(["Industry", "Setor"], industry):
                 # Industry is a custom autocomplete — must select from the suggestions
                 # list so LinkedIn registers the value; DOM value alone is ignored on save.
                 # Only count it as updated when a suggestion was actually selected.
@@ -4134,66 +4471,99 @@ class LinkedInExtractor:
                 "url": url,
                 "status": "no_changes",
                 "message": "No fields were modified.",
+                "labels_seen": await self._dialog_field_labels(),
             }
 
         saved = await self._click_save_in_dialog()
-        await asyncio.sleep(1.5)
 
+        if not saved:
+            return {
+                "url": url,
+                "status": "save_failed",
+                "message": "Could not find the Save button.",
+                "fields_updated": fields_updated,
+                "buttons_seen": await self._dialog_buttons(),
+            }
         return {
             "url": url,
-            "status": "saved" if saved else "save_failed",
-            "message": f"Updated: {', '.join(fields_updated)}"
-            if saved
-            else "Could not find the Save button.",
+            "status": "saved",
+            "message": f"Updated: {', '.join(fields_updated)}",
             "fields_updated": fields_updated,
         }
 
     async def edit_profile_about(self, about_text: str) -> dict[str, Any]:
-        """Edit the About/Summary section of the profile."""
+        """Edit the About/Summary section of the profile.
+
+        LinkedIn calls the About section "summary" and its edit control's href
+        varies by account (``/edit/about/``, ``/overlay/edit/about/``, or
+        ``/edit/forms/summary/...``). Warm the profile SPA, open the editor by
+        clicking whichever in-page control exists (falling back to direct
+        navigation), then fill the contenteditable/textarea editor and save.
+        """
         username = await self._resolve_my_username()
-        url = f"https://www.linkedin.com/in/{username}/overlay/edit/about/"
-        await self._navigate_to_page(url)
+        await self._navigate_to_page(f"https://www.linkedin.com/in/{username}/")
         await detect_rate_limit(self._page)
-
-        try:
-            await self._page.wait_for_selector(
-                "dialog[open], [role='dialog'], main form", timeout=10000
-            )
-        except PlaywrightTimeoutError:
-            return {
-                "url": url,
-                "status": "edit_failed",
-                "message": "Edit about form did not open.",
-            }
-
         await asyncio.sleep(1.0)
 
-        # LinkedIn's About editor is a contenteditable div, not a native textarea.
-        # Include textarea as fallback for resilience.
+        # Open the editor by clicking its in-page control (href pattern varies).
+        opened = False
+        for frag in ("/edit/forms/summary/", "/overlay/edit/about/", "/edit/about/"):
+            anchor = self._page.locator(f'a[href*="{frag}"]')
+            if await anchor.count() == 0:
+                continue
+            try:
+                await anchor.first.scroll_into_view_if_needed(timeout=3000)
+            except Exception:
+                pass
+            try:
+                await anchor.first.click(timeout=5000)
+                opened = True
+                break
+            except Exception:
+                logger.debug("About control click failed for %s", frag, exc_info=True)
+
+        # Fallback: navigate directly to the summary/about edit routes.
+        if not opened:
+            for direct in (
+                f"https://www.linkedin.com/in/{username}/edit/forms/summary/new/",
+                f"https://www.linkedin.com/in/{username}/overlay/edit/about/",
+            ):
+                await self._navigate_to_page(direct)
+                await detect_rate_limit(self._page)
+                await asyncio.sleep(1.5)
+
+        # LinkedIn's About editor is a contenteditable div (textarea fallback),
+        # rendered either in a dialog or inline on the form page.
         editor = self._page.locator(
             'dialog [contenteditable="true"], [role="dialog"] [contenteditable="true"], '
-            'dialog textarea, [role="dialog"] textarea, main textarea'
+            'main [contenteditable="true"], [contenteditable="true"], '
+            'dialog textarea, [role="dialog"] textarea, main textarea, textarea'
         ).first
         try:
-            await editor.wait_for(state="visible", timeout=5000)
+            await editor.wait_for(state="visible", timeout=6000)
             await editor.click()
             await editor.fill(about_text)
         except Exception:
             return {
-                "url": url,
+                "url": self._page.url,
                 "status": "edit_failed",
-                "message": "Could not locate the About editor (contenteditable or textarea).",
+                "message": "Could not locate the About editor.",
+                "diagnostics": await self._about_diagnostics(),
             }
 
         saved = await self._click_save_in_dialog()
-        await asyncio.sleep(1.5)
 
+        if not saved:
+            return {
+                "url": self._page.url,
+                "status": "save_failed",
+                "message": "Could not find the Save button.",
+                "diagnostics": await self._about_diagnostics(),
+            }
         return {
-            "url": url,
-            "status": "saved" if saved else "save_failed",
-            "message": "About section updated."
-            if saved
-            else "Could not find the Save button.",
+            "url": self._page.url,
+            "status": "saved",
+            "message": "About section updated.",
         }
 
     async def _resolve_my_username(self) -> str:
@@ -4228,14 +4598,7 @@ class LinkedInExtractor:
         """
         username = await self._resolve_my_username()
         url = f"https://www.linkedin.com/in/{username}/overlay/create/new/?profileFormEntryPoint=PROFILE_SECTION&profileSectionId={section_slug}"
-        await self._navigate_to_page(url)
-        await detect_rate_limit(self._page)
-
-        try:
-            await self._page.wait_for_selector(
-                "dialog[open], [role='dialog'], main form", timeout=10000
-            )
-        except PlaywrightTimeoutError:
+        if not await self._open_edit_overlay(overlay_url=url):
             return {
                 "url": url,
                 "status": "edit_failed",
@@ -4243,7 +4606,7 @@ class LinkedInExtractor:
                 "section": section_slug,
             }
 
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(0.5)
         fields_filled: list[str] = []
 
         for label, value in fields.items():
@@ -4364,21 +4727,12 @@ class LinkedInExtractor:
         """Add a skill to the profile."""
         username = await self._resolve_my_username()
         url = f"https://www.linkedin.com/in/{username}/overlay/create/new/?profileFormEntryPoint=PROFILE_SECTION&profileSectionId=SKILLS"
-        await self._navigate_to_page(url)
-        await detect_rate_limit(self._page)
-
-        try:
-            await self._page.wait_for_selector(
-                "dialog[open], [role='dialog'], main form", timeout=10000
-            )
-        except PlaywrightTimeoutError:
+        if not await self._open_edit_overlay(overlay_url=url):
             return {
                 "url": url,
                 "status": "edit_failed",
                 "message": "Add skill form did not open.",
             }
-
-        await asyncio.sleep(1.0)
 
         # Fill the skill name field
         # Note: _fill_field_by_label is case-insensitive so one call is sufficient
@@ -4594,21 +4948,12 @@ class LinkedInExtractor:
         """
         username = await self._resolve_my_username()
         url = f"https://www.linkedin.com/in/{username}/overlay/create/new/?profileFormEntryPoint=PROFILE_SECTION&profileSectionId=LANGUAGES"
-        await self._navigate_to_page(url)
-        await detect_rate_limit(self._page)
-
-        try:
-            await self._page.wait_for_selector(
-                "dialog[open], [role='dialog'], main form", timeout=10000
-            )
-        except PlaywrightTimeoutError:
+        if not await self._open_edit_overlay(overlay_url=url):
             return {
                 "url": url,
                 "status": "edit_failed",
                 "message": "Add language form did not open.",
             }
-
-        await asyncio.sleep(1.0)
 
         # Fill the language name autocomplete and select from suggestions
         filled = await self._fill_field_by_label("Language", name)
