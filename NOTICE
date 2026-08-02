@@ -1,0 +1,41 @@
+linkedin-mcp-server (fork brasileiro)
+Copyright 2026 Alison Silva (DevAlissu)
+
+Este produto inclui software desenvolvido originalmente por:
+
+  linkedin-mcp-server
+  Copyright Daniel Sticker (stickerdaniel) e colaboradores
+  https://github.com/stickerdaniel/linkedin-mcp-server
+  Licenciado sob a Apache License, Version 2.0
+
+As ferramentas de edicao de perfil (profile-edit) derivam do PR #314 de
+Gabrcodes, aplicado no fork de Safee-ullah1:
+
+  https://github.com/stickerdaniel/linkedin-mcp-server/pull/314
+  https://github.com/Safee-ullah1/linkedin-mcp-server
+
+--------------------------------------------------------------------------------
+
+Modificacoes deste fork (Copyright 2026 Alison Silva):
+
+  - Camada de internacionalizacao (linkedin_mcp_server/scraping/i18n.py) com
+    aliases EN/PT-BR para rotulos de campo, valores de dropdown, botoes de acao,
+    paginacao e seletores da mensageria.
+  - Correcoes na edicao de perfil para contas com interface em portugues:
+    abertura dos modais via clique no controle da pagina, localizacao de campos
+    por nome acessivel, preenchimento da headline (div contenteditable sem
+    rotulo) e reconhecimento do botao Salvar.
+  - Reescrita da edicao da secao Sobre para a rota /edit/forms/summary.
+  - Modularizacao do pacote de scraping em base, profile_editor, discovery,
+    messaging e connecting, compostos como mixins em LinkedInExtractor.
+  - Diagnosticos estruturados nas respostas de falha das operacoes de edicao.
+
+--------------------------------------------------------------------------------
+
+Este projeto e independente e nao possui afiliacao, autorizacao, endosso ou
+patrocinio da LinkedIn Corporation ou da Microsoft. "LinkedIn" e marca
+registrada da LinkedIn Corporation, usada aqui apenas de forma descritiva para
+identificar o servico com o qual este software interopera.
+
+Construido com FastMCP (https://gofastmcp.com/) e Patchright
+(https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-python).

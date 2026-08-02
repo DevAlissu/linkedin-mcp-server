@@ -1,10 +1,17 @@
 # .github/workflows/release.yml
 name: Auto Release
 
+# Herdado do projeto original e DESARMADO neste fork: os passos publicam no PyPI
+# (pacote `mcp-server-linkedin`, do autor original) e no Docker Hub
+# `stickerdaniel/linkedin-mcp-server`, e mexem na protecao de branch via
+# GH_ADMIN_TOKEN. Publicar ali a partir deste fork seria apropriar-se dos canais
+# de distribuicao de outro projeto, entao o gatilho automatico por push foi
+# removido. As releases deste fork sao feitas por tag/GitHub Release.
+#
+# Antes de reativar: trocar o nome do pacote e o namespace da imagem para os
+# nossos, e configurar os segredos correspondentes.
 on:
-  push:
-    branches: [main]
-    paths: ['pyproject.toml']  # Only trigger when pyproject.toml changes
+  workflow_dispatch:
 
 jobs:
   check-version-bump:
