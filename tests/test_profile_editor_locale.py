@@ -240,8 +240,12 @@ async def test_skill_removal_is_refused_before_any_click_without_a_confirm_label
     editor = _editor(page_pt)
 
     with pytest.raises(ProfileEditError) as err:
-        await editor.remove_skill(Skill(name="Frontend Developer", position=1, ref="301"))
+        await editor.remove_skill(
+            Skill(name="Frontend Developer", position=1, ref="301")
+        )
 
     assert err.value.code is ProfileEditErrorCode.SELECTOR_NOT_FOUND
-    skills = await page_pt.evaluate("JSON.parse(localStorage.getItem('S') || '{}').skills")
+    skills = await page_pt.evaluate(
+        "JSON.parse(localStorage.getItem('S') || '{}').skills"
+    )
     assert skills is None  # the delete button was never clicked, nothing was saved
