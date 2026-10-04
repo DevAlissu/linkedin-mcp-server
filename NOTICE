@@ -27,6 +27,13 @@ fork ate aqui (Copyright 2026 Alison Silva):
   - Workflow de release herdado desarmado, para nao publicar nos canais de
     distribuicao do projeto original.
 
+A edicao do proprio perfil com aprovacao (pacote profile_edit, editor e
+seletores em linkedin/, ferramentas em tools/profile_edit.py, testes e o guia
+docs/profile-editing.md) vem do PR #1209 de stevenmcsorley, ainda aberto no
+projeto original, incorporado aqui como estava no commit 2fdffc8:
+
+  https://github.com/stickerdaniel/linkedin-mcp-server/pull/1209
+
 A versao anterior deste fork (base 4.17.0), com as ferramentas de edicao de
 perfil derivadas do PR #314 de Gabrcodes e a camada de interface em portugues,
 continua na branch main e na release v4.17.0-br.1, ate ser portada para esta
