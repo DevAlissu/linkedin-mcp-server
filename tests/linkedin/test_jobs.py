@@ -184,6 +184,22 @@ class TestReadJob:
         assert "job_posting" in result["sections"]
         assert "section_errors" not in result
 
+    async def test_a_portuguese_posting_with_its_description_reports_nothing(
+        self, mock_page
+    ):
+        """A pt-BR account renders "Sobre a vaga" under the forced en-US context."""
+        reader = _reader(mock_page)
+        with patch.object(
+            reader._capture,
+            "capture",
+            new_callable=AsyncMock,
+            return_value=extracted("FullStack\nRemoto\nSobre a vaga\nAbout FullStack"),
+        ):
+            result = await reader.read_job("4475039540")
+
+        assert "job_posting" in result["sections"]
+        assert "section_errors" not in result
+
 
 class TestSearchJobs:
     """Tests for search_jobs with job ID extraction and pagination."""

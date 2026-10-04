@@ -77,7 +77,7 @@
       "call": "read_job",
       "kind": "wait_for_function",
       "operation": "job_description_ready",
-      "program_digest": "787d6bbc05c8",
+      "program_digest": "bc22880d71b7",
       "timeout_ms": 10000
     },
     {

@@ -86,13 +86,25 @@ class JobPostingTextTable:
 
 _JOB_POSTING_TEXT: dict[str, JobPostingTextTable] = {
     "en-US": JobPostingTextTable(description_headings=("About the job",)),
+    # Measured on 4 October 2026 on a pt-BR account (<html lang="pt">).
+    "pt-BR": JobPostingTextTable(description_headings=("Sobre a vaga",)),
 }
 
-# Same locale contract as `DETAIL_CAPTURE_EN_US`: the context is forced to
-# en-US, so only this entry is ever used. A posting rendered in another
-# language never matches: it spends the full timeout, extracts what loaded,
-# and is reported as missing its description.
 JOB_POSTING_EN_US = _JOB_POSTING_TEXT["en-US"]
+
+# The context is forced to en-US, but LinkedIn still renders a posting in the
+# member's own interface language: a pt-BR account gets "Sobre a vaga" (measured
+# 4 October 2026). The capture therefore accepts the heading of every measured
+# locale, still only as a whole line, so a heading quoted mid-sentence never
+# passes. A posting in a language without an entry spends the full timeout,
+# extracts what loaded, and is reported as missing its description.
+JOB_POSTING_MEASURED_LOCALES = JobPostingTextTable(
+    description_headings=tuple(
+        heading
+        for table in _JOB_POSTING_TEXT.values()
+        for heading in table.description_headings
+    )
+)
 
 # Patterns that mark the start of LinkedIn page chrome (sidebar/footer).
 # Everything from the earliest match onwards is stripped.

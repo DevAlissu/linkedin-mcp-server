@@ -31,7 +31,7 @@ from linkedin_mcp_server.linkedin.contracts import (
 from linkedin_mcp_server.linkedin.navigation import PageNavigator
 from linkedin_mcp_server.linkedin.session import PageSession
 from linkedin_mcp_server.linkedin.text import (
-    JOB_POSTING_EN_US,
+    JOB_POSTING_MEASURED_LOCALES,
     DetailCaptureTextTable,
     JobPostingTextTable,
 )
@@ -550,7 +550,7 @@ class TestActivityFeedExtraction:
             )
 
         mock_page.wait_for_function.assert_awaited_once_with(
-            JOB_POSTING_EN_US.readiness_expression(), timeout=10000
+            JOB_POSTING_MEASURED_LOCALES.readiness_expression(), timeout=10000
         )
         assert events == ["wait", "scroll"]
         _, kwargs = mock_scroll.call_args

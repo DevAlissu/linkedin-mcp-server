@@ -32,7 +32,7 @@ from linkedin_mcp_server.linkedin.navigation import PageNavigator
 from linkedin_mcp_server.linkedin.session import PageSession
 from linkedin_mcp_server.linkedin.text import (
     DETAIL_CAPTURE_EN_US,
-    JOB_POSTING_EN_US,
+    JOB_POSTING_MEASURED_LOCALES,
     DetailCaptureTextTable,
     JobPostingTextTable,
     filter_linkedin_noise_lines,
@@ -212,7 +212,7 @@ class SectionCapture:
         navigator: PageNavigator,
         content: PageContentReader,
         detail_text: DetailCaptureTextTable = DETAIL_CAPTURE_EN_US,
-        job_posting_text: JobPostingTextTable = JOB_POSTING_EN_US,
+        job_posting_text: JobPostingTextTable = JOB_POSTING_MEASURED_LOCALES,
     ):
         self._session = session
         self._navigator = navigator

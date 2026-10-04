@@ -5,6 +5,7 @@ import re
 from linkedin_mcp_server.linkedin.text import (
     DETAIL_CAPTURE_EN_US,
     JOB_POSTING_EN_US,
+    JOB_POSTING_MEASURED_LOCALES,
     JOB_SEARCH_EN_US,
     JobPostingTextTable,
     strip_conversation_chrome,
@@ -105,6 +106,23 @@ class TestJobPostingText:
         assert not JOB_POSTING_EN_US.has_description("Read About the job below")
         assert not JOB_POSTING_EN_US.has_description("Engineer\nAcme\nApply")
         assert not JOB_POSTING_EN_US.has_description("")
+
+    def test_a_portuguese_posting_has_its_description(self):
+        """Measured on a pt-BR account, where the en-US context still renders Portuguese."""
+        posting = (
+            "FullStack\nRemoto\nCandidatar-se\nSalvar\nSobre a vaga\nAbout FullStack"
+        )
+
+        assert JOB_POSTING_MEASURED_LOCALES.has_description(posting)
+        assert not JOB_POSTING_EN_US.has_description(posting)
+
+    def test_measured_locales_keep_the_whole_line_rule(self):
+        assert JOB_POSTING_MEASURED_LOCALES.has_description("Engineer\nAbout the job")
+        assert not JOB_POSTING_MEASURED_LOCALES.has_description(
+            "Leia Sobre a vaga abaixo"
+        )
+        assert not JOB_POSTING_MEASURED_LOCALES.has_description("Poste\nÜber den Job")
+        assert '"Sobre a vaga"' in JOB_POSTING_MEASURED_LOCALES.readiness_expression()
 
 
 class TestStripLinkedInNoise:

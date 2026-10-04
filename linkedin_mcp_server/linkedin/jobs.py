@@ -45,7 +45,7 @@ from linkedin_mcp_server.linkedin.navigation import PageNavigator
 from linkedin_mcp_server.linkedin.search_urls import build_job_search_url
 from linkedin_mcp_server.linkedin.session import NAV_DELAY
 from linkedin_mcp_server.linkedin.text import (
-    JOB_POSTING_EN_US,
+    JOB_POSTING_MEASURED_LOCALES,
     JOB_SEARCH_EN_US,
     JobSearchTextTable,
 )
@@ -99,7 +99,7 @@ class JobReader:
                 references["job_posting"] = label_similar_jobs(
                     extracted.references, job_id
                 )
-            if not JOB_POSTING_EN_US.has_description(extracted.text):
+            if not JOB_POSTING_MEASURED_LOCALES.has_description(extracted.text):
                 section_errors["job_posting"] = missing_description_section_error()
         elif extracted.text == RATE_LIMITED_SECTION_TEXT:
             section_errors["job_posting"] = rate_limited_section_error()
