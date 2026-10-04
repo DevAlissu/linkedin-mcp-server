@@ -26,6 +26,7 @@ from linkedin_mcp_server.linkedin.identifiers import (
     normalize_profile_urn,
     normalize_thread_id,
 )
+from linkedin_mcp_server.tools.approval import requires_user_interaction
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,7 @@ def register_messaging_tools(
         title="Send Message",
         annotations={"destructiveHint": True, "openWorldHint": True},
         tags={"messaging", "actions"},
+        meta=requires_user_interaction(),
     )
     async def send_message(
         linkedin_username: str,

@@ -22,6 +22,7 @@ from linkedin_mcp_server.linkedin import parse_person_sections
 from linkedin_mcp_server.linkedin.contracts import FilterValidationError
 from linkedin_mcp_server.linkedin.identifiers import normalize_person_identifier
 from linkedin_mcp_server.linkedin.search_urls import build_people_search_url
+from linkedin_mcp_server.tools.approval import requires_user_interaction
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,7 @@ def register_person_tools(
         title="Connect With Person",
         annotations={"destructiveHint": True, "openWorldHint": True},
         tags={"person", "actions"},
+        meta=requires_user_interaction(),
     )
     async def connect_with_person(
         linkedin_username: str,

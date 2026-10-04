@@ -39,6 +39,7 @@ from linkedin_mcp_server.profile_edit.service import (
     Proposal,
 )
 from linkedin_mcp_server.profile_edit.store import ProfileEditStore
+from linkedin_mcp_server.tools.approval import requires_user_interaction
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +288,7 @@ def register_profile_edit_tools(
             "openWorldHint": True,
         },
         tags={"profile-edit", "actions"},
+        meta=requires_user_interaction(),
     )
     async def apply_profile_changes(
         ctx: Context, changeSetId: str, confirm: bool = False
