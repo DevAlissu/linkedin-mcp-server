@@ -1,11 +1,15 @@
 [project]
 name = "mcp-server-linkedin"
 version = "4.26.2"
-description = "MCP server that gives AI assistants like Claude access to LinkedIn profiles, companies, and job postings through the user's own browser session."
+description = "Servidor MCP de LinkedIn com suporte a interface em portugues, usando a propria sessao de navegador do usuario. Fork de stickerdaniel/linkedin-mcp-server."
 readme = "README.md"
 requires-python = ">=3.12.4,<3.15"
 authors = [
-    { name = "Daniel Sticker", email = "daniel@sticker.name" }
+    { name = "Daniel Sticker", email = "daniel@sticker.name" },
+    { name = "Alison Silva", email = "alison.silva8741@gmail.com" }
+]
+maintainers = [
+    { name = "Alison Silva", email = "alison.silva8741@gmail.com" }
 ]
 license = "Apache-2.0"
 # Declared rather than left to setuptools' default globs, which happen to cover
@@ -56,11 +60,12 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/stickerdaniel/linkedin-mcp-server"
-Documentation = "https://github.com/stickerdaniel/linkedin-mcp-server#readme"
-Repository = "https://github.com/stickerdaniel/linkedin-mcp-server"
-Issues = "https://github.com/stickerdaniel/linkedin-mcp-server/issues"
-Changelog = "https://github.com/stickerdaniel/linkedin-mcp-server/releases"
+Homepage = "https://github.com/DevAlissu/linkedin-mcp-server"
+Documentation = "https://github.com/DevAlissu/linkedin-mcp-server#readme"
+Repository = "https://github.com/DevAlissu/linkedin-mcp-server"
+Issues = "https://github.com/DevAlissu/linkedin-mcp-server/issues"
+Changelog = "https://github.com/DevAlissu/linkedin-mcp-server/releases"
+"Projeto original" = "https://github.com/stickerdaniel/linkedin-mcp-server"
 
 [project.scripts]
 mcp-server-linkedin = "linkedin_mcp_server.cli_main:main"

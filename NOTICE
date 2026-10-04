@@ -2,3 +2,42 @@ mcp-server-linkedin
 Copyright 2025-2026 Daniel Sticker
 
 Licensed under the Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+
+linkedin-mcp-server (fork em portugues)
+Copyright 2026 Alison Silva (DevAlissu)
+https://github.com/DevAlissu/linkedin-mcp-server
+
+Este fork e uma obra derivada do projeto acima, distribuida sob a mesma
+licenca (Apache License, Version 2.0):
+
+  linkedin-mcp-server
+  Copyright Daniel Sticker (stickerdaniel) e colaboradores
+  https://github.com/stickerdaniel/linkedin-mcp-server
+
+Esta branch parte da versao 4.26.2 do projeto original. Modificacoes deste
+fork ate aqui (Copyright 2026 Alison Silva):
+
+  - Documentacao em portugues em .github/README.md.
+  - README herdado sem os blocos patrocinados (servico hospedado, API
+    gerenciada e provedores de proxy) e sem a sugestao de segunda conta.
+  - Metadados do pyproject apontando para este repositorio, com o autor
+    original preservado.
+  - Workflow de release herdado desarmado, para nao publicar nos canais de
+    distribuicao do projeto original.
+
+A versao anterior deste fork (base 4.17.0), com as ferramentas de edicao de
+perfil derivadas do PR #314 de Gabrcodes e a camada de interface em portugues,
+continua na branch main e na release v4.17.0-br.1, ate ser portada para esta
+base:
+
+  https://github.com/stickerdaniel/linkedin-mcp-server/pull/314
+  https://github.com/Safee-ullah1/linkedin-mcp-server
+
+--------------------------------------------------------------------------------
+
+Este projeto e independente e nao possui afiliacao, autorizacao, endosso ou
+patrocinio da LinkedIn Corporation ou da Microsoft. "LinkedIn" e marca
+registrada da LinkedIn Corporation, usada aqui apenas de forma descritiva para
+identificar o servico com o qual este software interopera.
