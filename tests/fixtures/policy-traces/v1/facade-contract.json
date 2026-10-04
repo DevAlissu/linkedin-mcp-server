@@ -126,6 +126,18 @@
               "default": false,
               "description": "must be true; the user's explicit approval",
               "type": "boolean"
+            },
+            "notifyNetwork": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "the user's own answer to whether LinkedIn should\nnotify their network: true sets each form's notify switch on,\nfalse sets it off. Forms without the switch report\n\"not_offered\". Without it nothing is written."
             }
           },
           "required": [

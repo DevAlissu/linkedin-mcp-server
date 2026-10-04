@@ -69,6 +69,8 @@ class ProfileEditorPort(Protocol):
     async def add_skill(self, name: str) -> str: ...
     async def remove_skill(self, skill: Skill) -> None: ...
     async def pause(self, seconds: float) -> None: ...
+    def set_network_notification(self, notify: bool | None) -> None: ...
+    def last_network_notification(self) -> str | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,8 +386,18 @@ class ProfileEditService:
         return out
 
     # ── APPLY ───────────────────────────────────────────────────────────────
-    def precheck_apply(self, change_set_id: str, *, confirm: bool) -> ChangeSet:
-        """Every refusal that needs no browser: run before one is acquired."""
+    def precheck_apply(
+        self,
+        change_set_id: str,
+        *,
+        confirm: bool,
+        notify_network: bool | None = None,
+    ) -> ChangeSet:
+        """Every refusal that needs no browser: run before one is acquired.
+
+        ``notify_network`` is the user's own answer to whether LinkedIn should
+        notify their network; an apply without it is refused before any write.
+        """
         cs = self._store.load(change_set_id)
         if cs.status is not ChangeSetStatus.PENDING_APPROVAL:
             raise ProfileEditError(
@@ -416,10 +428,30 @@ class ProfileEditService:
             raise ProfileEditError(
                 ProfileEditErrorCode.WRITES_DISABLED, changeSetId=cs.id
             )
+        if notify_network not in (True, False):
+            self._store.audit(
+                at=self._clock(),
+                tool="apply_profile_changes",
+                changeSetId=cs.id,
+                result="refused",
+                error="NOTIFY_DECISION_REQUIRED",
+            )
+            raise ProfileEditError(
+                ProfileEditErrorCode.NOTIFY_DECISION_REQUIRED, changeSetId=cs.id
+            )
         return cs
 
-    async def apply(self, change_set_id: str, *, confirm: bool) -> dict[str, Any]:
-        cs = self.precheck_apply(change_set_id, confirm=confirm)
+    async def apply(
+        self,
+        change_set_id: str,
+        *,
+        confirm: bool,
+        notify_network: bool | None = None,
+    ) -> dict[str, Any]:
+        cs = self.precheck_apply(
+            change_set_id, confirm=confirm, notify_network=notify_network
+        )
+        self._editor.set_network_notification(notify_network)
         await self._check_account(cs)
         try:
             current = await self._current_values(cs)
@@ -559,7 +591,11 @@ class ProfileEditService:
     ) -> dict[str, Any]:
         """Apply one field; turn every expected failure into a result row."""
         try:
-            return await self._apply_one(change, skills)
+            result = await self._apply_one(change, skills)
+            notification = self._editor.last_network_notification()
+            if notification is not None:
+                result["networkNotification"] = notification
+            return result
         except ProfileEditError as e:
             return {
                 "field": change.key,
@@ -731,5 +767,5 @@ class ProfileEditService:
             "diff": render_diff(cs),
             "warnings": warnings,
             "unsupported": [],
-            "note": "Nothing has been changed on LinkedIn. apply_profile_changes(changeSetId, confirm=true) applies exactly these changes after the user approves them.",
+            "note": "Nothing has been changed on LinkedIn. apply_profile_changes(changeSetId, confirm=true, notifyNetwork=...) applies exactly these changes after the user approves them and says whether LinkedIn should notify their network.",
         }

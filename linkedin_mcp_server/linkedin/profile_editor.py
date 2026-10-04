@@ -69,6 +69,8 @@ class ProfileEditor:
         self._navigations = 0
         self._experience_forms: dict[str, str] = {}
         self._location: str | None = None
+        self._notify: bool | None = None
+        self._last_notify: str | None = None
 
     @property
     def _page(self) -> Page:
@@ -234,18 +236,54 @@ class ProfileEditor:
                 if line:
                     await keyboard.insert_text(line)
 
-    async def _refuse_if_notifying(self, field: str) -> None:
-        """Never let an approved edit also broadcast an update to the network."""
+    # ── network notification ────────────────────────────────────────────────
+    def set_network_notification(self, notify: bool | None) -> None:
+        """The user's answer to whether LinkedIn should notify their network."""
+        self._notify = notify
+
+    def last_network_notification(self) -> str | None:
+        """What the last saved form did: "on", "off" or "not_offered"."""
+        return self._last_notify
+
+    async def _settle_notify_switch(self, field: str) -> None:
+        """Set LinkedIn's notify-your-network switch to the user's decision.
+
+        A form without the switch cannot notify and says so in the result. With
+        no decision (the editor used outside an approved apply), a switch that
+        is on is refused rather than saved, so nothing is broadcast by default.
+        """
+        self._last_notify = None
         switches = self._dialog().locator(sel.NOTIFY_SWITCH)
-        for i in range(await switches.count()):
-            if await switches.nth(i).is_checked():
+        count = await switches.count()
+        if not count:
+            self._last_notify = "not_offered"
+            return
+        for i in range(count):
+            switch = switches.nth(i)
+            if self._notify is None:
+                if await switch.is_checked():
+                    raise ProfileEditError(
+                        ProfileEditErrorCode.NOTIFY_DECISION_REQUIRED, field=field
+                    )
+                continue
+            if await switch.is_checked() != self._notify:
+                try:
+                    await switch.set_checked(self._notify, timeout=_FIELD_TIMEOUT_MS)
+                except Exception:
+                    # A visually hidden switch: toggle it the way the page does.
+                    await switch.evaluate(
+                        "(el, on) => { if (el.checked !== on) el.click(); }",
+                        self._notify,
+                    )
+            if await switch.is_checked() != self._notify:
                 raise ProfileEditError(
-                    ProfileEditErrorCode.VALIDATION_ERROR,
-                    f"The {field} form has LinkedIn's notify-your-network switch on. "
-                    "Turn it off on linkedin.com first; this server neither changes "
-                    "it nor saves with it on.",
+                    ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                    f"The {field} form's notify-your-network switch could not be "
+                    "set as the user decided; nothing was saved.",
                     field=field,
+                    notifyNetwork=self._notify,
                 )
+        self._last_notify = "on" if self._notify else "off"
 
     async def _replace(
         self, loc: Locator, *, expected: str, value: str, field: str, url: str
@@ -259,7 +297,7 @@ class ProfileEditor:
                 expected=expected,
                 actual=current,
             )
-        await self._refuse_if_notifying(field)
+        await self._settle_notify_switch(field)
         await self._type(loc, value)
         typed = normalize_text((await self._read(loc)).value)
         if typed != normalize_text(value):
@@ -499,7 +537,7 @@ class ProfileEditor:
             offered.append(text)
             if skill_key(text) == skill_key(name):
                 await options.nth(i).click()
-                await self._refuse_if_notifying("skill")
+                await self._settle_notify_switch("skill")
                 await self._save("skill", url)
                 return text
         raise ProfileEditError(
@@ -529,7 +567,7 @@ class ProfileEditor:
                 expected=skill.name,
                 actual=heading,
             )
-        await self._refuse_if_notifying("skill")
+        await self._settle_notify_switch("skill")
         # Refuse before the first click when this locale's confirmation label is
         # unknown: if that dialog never appeared, the click alone could delete.
         if not self._labels.get("confirm_delete"):

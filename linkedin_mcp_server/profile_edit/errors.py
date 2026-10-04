@@ -24,6 +24,7 @@ class ProfileEditErrorCode(StrEnum):
     CHANGE_SET_NOT_PENDING = "CHANGE_SET_NOT_PENDING"
     CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"
     WRITES_DISABLED = "WRITES_DISABLED"
+    NOTIFY_DECISION_REQUIRED = "NOTIFY_DECISION_REQUIRED"
     LINKEDIN_SAVE_FAILED = "LINKEDIN_SAVE_FAILED"
     VERIFICATION_FAILED = "VERIFICATION_FAILED"
     PARTIAL_FAILURE = "PARTIAL_FAILURE"
@@ -45,6 +46,7 @@ _EXPLANATIONS: dict[ProfileEditErrorCode, str] = {
     ProfileEditErrorCode.CHANGE_SET_NOT_PENDING: "This change set is no longer awaiting approval and cannot be applied.",
     ProfileEditErrorCode.CONFIRMATION_REQUIRED: "apply_profile_changes modifies LinkedIn and requires confirm=true after the user has approved the preview.",
     ProfileEditErrorCode.WRITES_DISABLED: "LinkedIn writes are disabled. Set MCP_LINKEDIN_WRITE_ENABLED=true for the server to allow them.",
+    ProfileEditErrorCode.NOTIFY_DECISION_REQUIRED: "Ask the user whether LinkedIn should notify their network about these profile changes, then call apply_profile_changes again with notifyNetwork=true or notifyNetwork=false. Never choose for them. Nothing was written.",
     ProfileEditErrorCode.LINKEDIN_SAVE_FAILED: "LinkedIn did not accept the save.",
     ProfileEditErrorCode.VERIFICATION_FAILED: "The save was submitted but the re-read value on LinkedIn does not match what was approved.",
     ProfileEditErrorCode.PARTIAL_FAILURE: "Some changes were applied and verified; the rest were not. See results for each field.",

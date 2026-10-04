@@ -104,7 +104,8 @@ POSITION_103 = form(
     '<span id="lt">Title*</span><input id="t" aria-labelledby="lt" maxlength="100">'
     '<span id="lc">Company or organization*</span><input id="c" aria-labelledby="lc" value="Liftango">'
     '<div role="textbox" contenteditable="true" aria-label="Description, maximum 2,000 characters"></div>',
-    "S.title103 = document.getElementById('t').value; S.desc103 = rich(document.querySelector('[role=textbox]'));",
+    "S.title103 = document.getElementById('t').value; S.desc103 = rich(document.querySelector('[role=textbox]'));"
+    " S.notifiedOnSave = document.getElementById('notify').checked;",
     """
     document.getElementById('notify').checked = S.notify;
     document.getElementById('t').value = S.title103;
@@ -161,7 +162,8 @@ NEW_SKILL = form(
     '<input type="checkbox" role="switch" id="notify">'
     '<input aria-label="Skill*" placeholder="Skill (ex: Project Management)" id="sk">'
     '<div role="listbox" id="lb"></div><input type="checkbox" aria-label="Senior Developer at IPG">',
-    "S.skills.push(document.getElementById('sk').value);",
+    "S.skills.push(document.getElementById('sk').value);"
+    " S.notifiedOnSave = document.getElementById('notify').checked;",
     """
     document.getElementById('notify').checked = S.notify;
     const CAT = ['ReactJS', 'React Native', 'TypeScript', 'Node.js'];
@@ -346,7 +348,7 @@ class TestReviewFindings:
         await set_state(page, notify=True)
         with pytest.raises(ProfileEditError) as e:
             await editor(page).add_skill("reactjs")
-        assert e.value.code is ProfileEditErrorCode.VALIDATION_ERROR
+        assert e.value.code is ProfileEditErrorCode.NOTIFY_DECISION_REQUIRED
         assert (await stored(page)).get("skills", ["jQuery", "Python"]) == [
             "jQuery",
             "Python",
@@ -410,8 +412,37 @@ class TestWrites:
             await editor(page).write_experience(
                 "103", field="description", expected="", value="New"
             )
-        assert e.value.code is ProfileEditErrorCode.VALIDATION_ERROR
+        assert e.value.code is ProfileEditErrorCode.NOTIFY_DECISION_REQUIRED
         assert "desc103" not in await stored(page)
+
+    async def test_a_no_turns_the_notify_switch_off_before_saving(self, page):
+        await set_state(page, notify=True)
+        ed = editor(page)
+        ed.set_network_notification(False)
+        await ed.write_experience("103", field="description", expected="", value="New")
+        state = await stored(page)
+        assert state["desc103"] == "New"
+        assert state["notifiedOnSave"] is False
+        assert ed.last_network_notification() == "off"
+
+    async def test_a_yes_turns_the_notify_switch_on_before_saving(self, page):
+        await set_state(page, notify=False)
+        ed = editor(page)
+        ed.set_network_notification(True)
+        await ed.add_skill("reactjs")
+        state = await stored(page)
+        assert state["skills"][-1] == "ReactJS"
+        assert state["notifiedOnSave"] is True
+        assert ed.last_network_notification() == "on"
+
+    async def test_a_form_without_the_switch_reports_it_was_not_offered(self, page):
+        ed = editor(page)
+        ed.set_network_notification(True)
+        await ed.write_about(
+            expected="I build web applications.\n\nMostly React.", value="New about"
+        )
+        assert (await stored(page))["about"] == "New about"
+        assert ed.last_network_notification() == "not_offered"
 
     async def test_a_missing_field_fails_with_diagnostics_and_clicks_nothing(
         self, page
@@ -485,7 +516,7 @@ class TestEndToEnd:
         assert (await stored(page)).get("headline") is None, "proposing writes nothing"
         with pytest.raises(ProfileEditError):
             await svc(writes=False).apply(cs["changeSetId"], confirm=True)
-        out = await svc().apply(cs["changeSetId"], confirm=True)
+        out = await svc().apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert out["status"] == "APPLIED" and all(r["verified"] for r in out["results"])
         s = await stored(page)
         assert (s["headline"], s["skills"][-1]) == (
@@ -500,6 +531,6 @@ class TestEndToEnd:
         )
         await set_state(page, title103="Changed by hand")
         with pytest.raises(ProfileEditError) as e:
-            await svc().apply(second["changeSetId"], confirm=True)
+            await svc().apply(second["changeSetId"], confirm=True, notify_network=False)
         assert e.value.code is ProfileEditErrorCode.STALE_CHANGE_SET
         assert (await stored(page))["title103"] == "Changed by hand"

@@ -77,14 +77,22 @@ async def test_the_full_workflow_with_both_safeguards(mcp, monkeypatch):
         assert disabled["error"] == "WRITES_DISABLED" and ed.writes == []
 
         monkeypatch.setenv("MCP_LINKEDIN_WRITE_ENABLED", "true")
-        applied = await call(
+        unanswered = await call(
             mcp, "apply_profile_changes", {"changeSetId": cs_id, "confirm": True}
+        )
+        assert unanswered["error"] == "NOTIFY_DECISION_REQUIRED" and ed.writes == []
+        applied = await call(
+            mcp,
+            "apply_profile_changes",
+            {"changeSetId": cs_id, "confirm": True, "notifyNetwork": False},
         )
         assert (
             applied["status"] == "APPLIED" and applied["results"][0]["verified"] is True
         )
         again = await call(
-            mcp, "apply_profile_changes", {"changeSetId": cs_id, "confirm": True}
+            mcp,
+            "apply_profile_changes",
+            {"changeSetId": cs_id, "confirm": True, "notifyNetwork": False},
         )
         assert again["error"] == "CHANGE_SET_NOT_PENDING"
     assert ed.headline == "Senior Product Engineer"

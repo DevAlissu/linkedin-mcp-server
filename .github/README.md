@@ -108,7 +108,7 @@ O servidor é um processo de vida longa. Depois de atualizar o código, reinicie
 | `apply_profile_changes` | Aplica uma proposta aprovada, campo por campo, e confere cada um |
 | `discard_profile_changes` | Descarta uma proposta |
 
-As três primeiras e as duas de proposta e prévia só leem. A escrita fica desligada até o servidor ser iniciado com `MCP_LINKEDIN_WRITE_ENABLED=true`, e cada aplicação ainda exige a sua aprovação. O guia completo, em inglês, está em [docs/profile-editing.md](../docs/profile-editing.md).
+As três primeiras e as duas de proposta e prévia só leem. A escrita fica desligada até o servidor ser iniciado com `MCP_LINKEDIN_WRITE_ENABLED=true`, e cada aplicação ainda exige a sua aprovação. Antes de aplicar, a IA tem que perguntar se você quer que o LinkedIn notifique a sua rede, e a sua resposta vai em `notifyNetwork`: sem ela nada é gravado. Nos formulários que têm a chave "notificar sua rede" (experiências e competências), o servidor ajusta a chave para a sua resposta e confere antes de salvar. Nos que não têm, o resultado informa que a opção não existe ali. O guia completo, em inglês, está em [docs/profile-editing.md](../docs/profile-editing.md).
 
 A documentação completa das opções de linha de comando, de Docker e de solução de problemas está no [README do projeto original](../README.md), em inglês.
 

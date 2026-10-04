@@ -14,7 +14,7 @@
       "idempotentHint": false,
       "openWorldHint": true
     },
-    "description": "Applies a previously created and explicitly approved change set to the authenticated user's own LinkedIn profile. This modifies external state.\n\nCall only after the user has seen the preview and said to apply it.\nRequires confirm=true and a server started with\nMCP_LINKEDIN_WRITE_ENABLED=true. Applies exactly the stored changes,\none field at a time, re-reading each from LinkedIn to verify it; a\nfield counts as done only when the saved value is observed. Refuses a\nchange set that is not pending (each is applied at most once) or whose\nprofile changed since it was proposed (STALE_CHANGE_SET). Stops at the\nfirst failure and reports PARTIAL_FAILURE with per-field results; it\nnever retries a failed write and never rolls back automatically.",
+    "description": "Applies a previously created and explicitly approved change set to the authenticated user's own LinkedIn profile. This modifies external state.\n\nCall only after the user has seen the preview and said to apply it.\nBefore calling, ask the user whether LinkedIn should notify their\nnetwork about these changes and pass their answer as notifyNetwork;\nnever choose for them. Requires confirm=true, an explicit\nnotifyNetwork, and a server started with\nMCP_LINKEDIN_WRITE_ENABLED=true. Applies exactly the stored changes,\none field at a time, re-reading each from LinkedIn to verify it; a\nfield counts as done only when the saved value is observed. Refuses a\nchange set that is not pending (each is applied at most once) or whose\nprofile changed since it was proposed (STALE_CHANGE_SET). Stops at the\nfirst failure and reports PARTIAL_FAILURE with per-field results; it\nnever retries a failed write and never rolls back automatically.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -26,6 +26,18 @@
           "default": false,
           "description": "must be true; the user's explicit approval",
           "type": "boolean"
+        },
+        "notifyNetwork": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the user's own answer to whether LinkedIn should\nnotify their network: true sets each form's notify switch on,\nfalse sets it off. Forms without the switch report\n\"not_offered\". Without it nothing is written."
         }
       },
       "required": [

@@ -79,8 +79,14 @@ READ ──► PROPOSE ──► PREVIEW ──► APPLY (you approve) ──►
    Skills already on the profile are recognised and not added twice. If a
    skills list keeps loading past the reader's limit, the result is
    `INCOMPLETE_READ`, never a partial list.
-8. **No broadcasts.** If a form's "notify your network" switch is on, for a
-   text edit or a skill, the save is refused rather than announcing your edit.
+8. **You decide on notifications.** Every apply needs `notifyNetwork`, your own
+   answer to whether LinkedIn should notify your network; the assistant must
+   ask, and an apply without it is refused before anything is written
+   (`NOTIFY_DECISION_REQUIRED`). Where a form has the "notify your network"
+   switch (positions and skills), the server sets it to your answer, checks
+   that it took, and only then saves. Each result reports `networkNotification`
+   as `on`, `off` or `not_offered` (the form has no switch). Used outside an
+   apply, the editor still refuses to save a form whose switch is on.
 9. **Success means observed.** A field is reported `verified: true` only after
    the saved value is read back from LinkedIn. Clicking Save is not success.
    A rich-text field that reads empty is trusted only after it stays empty for
@@ -211,9 +217,10 @@ SKILLS
 | `AUTHENTICATION_REQUIRED` | LinkedIn wants a sign-in or a security check. | Clear it on linkedin.com yourself, then retry. Nothing is bypassed. |
 | `CONFIRMATION_REQUIRED` | Apply was called without `confirm: true`. | Approve the preview, then call again with `confirm: true`. |
 | `WRITES_DISABLED` | The server was started without the write flag. | Restart it with `MCP_LINKEDIN_WRITE_ENABLED=true`. |
+| `NOTIFY_DECISION_REQUIRED` | Apply was called without `notifyNetwork`. | Ask whether LinkedIn should notify your network, then call again with `notifyNetwork: true` or `false`. |
 | `STALE_CHANGE_SET` | The profile changed after the proposal. | Read the profile again and propose afresh. |
 | `CHANGE_SET_NOT_PENDING` | The change set was already applied, discarded or went stale. | Propose a new one. |
-| `VALIDATION_ERROR` | Too long, an empty headline, a newline in a single-line field, or the notify switch is on. | Fix the value (`details` says which and by how much). |
+| `VALIDATION_ERROR` | Too long, an empty headline, or a newline in a single-line field. | Fix the value (`details` says which and by how much). |
 | `AMBIGUOUS_EXPERIENCE` | A match fits several positions. | Pick one of the listed `experienceId`s. |
 | `EXPERIENCE_NOT_FOUND` / `SKILL_NOT_FOUND` | No such position or skill; for skills, `offered` lists LinkedIn's suggestions. | Use an id or an offered name. |
 | `UNSUPPORTED_FIELD` | A field this server doesn't edit, at any level of the request (`details.fields` names each one, e.g. `experiences[0].location`). | Edit it on linkedin.com. |
@@ -252,8 +259,9 @@ writer refuses any other key. Keep the directory out of version control
    unchanged.
 3. Apply without `confirm` (`CONFIRMATION_REQUIRED`), then with `confirm: true`
    (`WRITES_DISABLED`).
-4. Restart with the write flag and apply. Expect `verified: true` and the new
-   headline on linkedin.com.
+4. Restart with the write flag and apply without `notifyNetwork`
+   (`NOTIFY_DECISION_REQUIRED`), then with `notifyNetwork: false`. Expect
+   `verified: true` and the new headline on linkedin.com.
 5. Apply the same change set again: `CHANGE_SET_NOT_PENDING`.
 6. Propose another change, edit the headline by hand on linkedin.com, then
    apply: `STALE_CHANGE_SET`, and your hand edit stays.

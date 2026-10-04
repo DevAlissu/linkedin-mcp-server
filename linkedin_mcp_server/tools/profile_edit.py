@@ -291,13 +291,19 @@ def register_profile_edit_tools(
         meta=requires_user_interaction(),
     )
     async def apply_profile_changes(
-        ctx: Context, changeSetId: str, confirm: bool = False
+        ctx: Context,
+        changeSetId: str,
+        confirm: bool = False,
+        notifyNetwork: bool | None = None,
     ) -> dict[str, Any]:
         """
         Applies a previously created and explicitly approved change set to the authenticated user's own LinkedIn profile. This modifies external state.
 
         Call only after the user has seen the preview and said to apply it.
-        Requires confirm=true and a server started with
+        Before calling, ask the user whether LinkedIn should notify their
+        network about these changes and pass their answer as notifyNetwork;
+        never choose for them. Requires confirm=true, an explicit
+        notifyNetwork, and a server started with
         MCP_LINKEDIN_WRITE_ENABLED=true. Applies exactly the stored changes,
         one field at a time, re-reading each from LinkedIn to verify it; a
         field counts as done only when the saved value is observed. Refuses a
@@ -310,15 +316,23 @@ def register_profile_edit_tools(
             ctx: FastMCP context
             changeSetId: id returned by propose_profile_changes
             confirm: must be true; the user's explicit approval
+            notifyNetwork: the user's own answer to whether LinkedIn should
+                notify their network: true sets each form's notify switch on,
+                false sets it off. Forms without the switch report
+                "not_offered". Without it nothing is written.
         """
         try:
-            _service(None).precheck_apply(changeSetId, confirm=confirm)
+            _service(None).precheck_apply(
+                changeSetId, confirm=confirm, notify_network=notifyNetwork
+            )
         except ProfileEditError as e:
             return e.to_result()
         return await _run(
             ctx,
             "apply_profile_changes",
-            lambda s: s.apply(changeSetId, confirm=confirm),
+            lambda s: s.apply(
+                changeSetId, confirm=confirm, notify_network=notifyNetwork
+            ),
         )
 
     @mcp.tool(

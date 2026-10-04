@@ -203,7 +203,9 @@ class TestPreviewAndStale:
             == "Edited by hand on linkedin.com"
         )
         assert (
-            await code_of(s.apply(cs["changeSetId"], confirm=True))
+            await code_of(
+                s.apply(cs["changeSetId"], confirm=True, notify_network=False)
+            )
             is ProfileEditErrorCode.CHANGE_SET_NOT_PENDING
         )
         assert ed.writes == []
@@ -227,7 +229,9 @@ class TestApplyGates:
         cs = await service(ed, store).propose(Proposal(headline=NEW_HEADLINE))
         assert (
             await code_of(
-                service(ed, store, writes=False).apply(cs["changeSetId"], confirm=True)
+                service(ed, store, writes=False).apply(
+                    cs["changeSetId"], confirm=True, notify_network=False
+                )
             )
             is ProfileEditErrorCode.WRITES_DISABLED
         )
@@ -242,13 +246,17 @@ class TestApplyGates:
     async def test_an_unknown_change_set_is_reported(self, store):
         assert (
             await code_of(
-                service(FakeEditor(), store).apply("cs_0000000000000000", confirm=True)
+                service(FakeEditor(), store).apply(
+                    "cs_0000000000000000", confirm=True, notify_network=False
+                )
             )
             is ProfileEditErrorCode.CHANGE_SET_NOT_FOUND
         )
         assert (
             await code_of(
-                service(FakeEditor(), store).apply("../../etc/passwd", confirm=True)
+                service(FakeEditor(), store).apply(
+                    "../../etc/passwd", confirm=True, notify_network=False
+                )
             )
             is ProfileEditErrorCode.CHANGE_SET_NOT_FOUND
         )
@@ -259,10 +267,44 @@ class TestApplyGates:
         cs = await s.propose(Proposal(headline=NEW_HEADLINE))
         assert s.discard(cs["changeSetId"])["status"] == "DISCARDED"
         assert (
-            await code_of(s.apply(cs["changeSetId"], confirm=True))
+            await code_of(
+                s.apply(cs["changeSetId"], confirm=True, notify_network=False)
+            )
             is ProfileEditErrorCode.CHANGE_SET_NOT_PENDING
         )
         assert ed.writes == []
+
+
+class TestNotifyDecision:
+    async def test_an_apply_without_the_users_answer_writes_nothing(self, store):
+        ed = FakeEditor()
+        s = service(ed, store)
+        cs = await s.propose(Proposal(headline=NEW_HEADLINE))
+        assert (
+            await code_of(s.apply(cs["changeSetId"], confirm=True))
+            is ProfileEditErrorCode.NOTIFY_DECISION_REQUIRED
+        )
+        assert ed.writes == []
+        assert ed.headline != NEW_HEADLINE
+
+    async def test_the_answer_is_checked_after_confirm_and_the_write_flag(self, store):
+        cs = await service(FakeEditor(), store).propose(Proposal(about=NEW_ABOUT))
+        with pytest.raises(ProfileEditError) as unconfirmed:
+            service(None, store).precheck_apply(cs["changeSetId"], confirm=False)
+        assert unconfirmed.value.code is ProfileEditErrorCode.CONFIRMATION_REQUIRED
+        with pytest.raises(ProfileEditError) as disabled:
+            service(None, store, writes=False).precheck_apply(
+                cs["changeSetId"], confirm=True
+            )
+        assert disabled.value.code is ProfileEditErrorCode.WRITES_DISABLED
+
+    async def test_a_yes_reaches_the_editor_and_the_result(self, store):
+        ed = FakeEditor()
+        s = service(ed, store)
+        cs = await s.propose(Proposal(about=NEW_ABOUT))
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=True)
+        assert ed.notify is True
+        assert out["results"][0]["networkNotification"] == "on"
 
 
 class TestApply:
@@ -270,17 +312,30 @@ class TestApply:
         ed = FakeEditor()
         s = service(ed, store)
         cs = await s.propose(Proposal(headline=NEW_HEADLINE, about=NEW_ABOUT))
-        out = await s.apply(cs["changeSetId"], confirm=True)
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert out["status"] == "APPLIED"
         assert out["results"] == [
-            {"field": "headline", "status": "UPDATED", "verified": True},
-            {"field": "about", "status": "UPDATED", "verified": True},
+            {
+                "field": "headline",
+                "status": "UPDATED",
+                "verified": True,
+                "networkNotification": "off",
+            },
+            {
+                "field": "about",
+                "status": "UPDATED",
+                "verified": True,
+                "networkNotification": "off",
+            },
         ]
+        assert ed.notify is False, "the user's answer reaches the editor"
         assert (ed.headline, ed.about) == (NEW_HEADLINE, NEW_ABOUT)
         assert ed.pauses == [3.0], "writes are paced"
         # The same change set cannot be applied twice.
         assert (
-            await code_of(s.apply(cs["changeSetId"], confirm=True))
+            await code_of(
+                s.apply(cs["changeSetId"], confirm=True, notify_network=False)
+            )
             is ProfileEditErrorCode.CHANGE_SET_NOT_PENDING
         )
 
@@ -290,7 +345,7 @@ class TestApply:
         ed = FakeEditor()
         s = service(ed, store)
         cs = await s.propose(Proposal(headline=NEW_HEADLINE))
-        out = await s.apply(cs["changeSetId"], confirm=True)
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         snap = json.loads(Path(out["snapshotPath"]).read_text(encoding="utf-8"))
         assert snap["values"] == {"headline": "Senior Software Developer"}
         assert set(snap) == {"takenAt", "changeSetId", "values"}
@@ -303,7 +358,9 @@ class TestApply:
         cs = await s.propose(Proposal(headline=NEW_HEADLINE))
         ed.headline = "My own manual edit"
         assert (
-            await code_of(s.apply(cs["changeSetId"], confirm=True))
+            await code_of(
+                s.apply(cs["changeSetId"], confirm=True, notify_network=False)
+            )
             is ProfileEditErrorCode.STALE_CHANGE_SET
         )
         assert ed.headline == "My own manual edit" and ed.writes == []
@@ -325,7 +382,7 @@ class TestApply:
                 skills_remove=["jquery"],
             )
         )
-        out = await s.apply(cs["changeSetId"], confirm=True)
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert out["status"] == "APPLIED"
         assert [r["status"] for r in out["results"]] == [
             "UPDATED",
@@ -355,7 +412,7 @@ class TestApply:
             ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
             formErrors=["Something went wrong"],
         )
-        out = await s.apply(cs["changeSetId"], confirm=True)
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert out["status"] == "PARTIAL_FAILURE" and out["error"] == "PARTIAL_FAILURE"
         assert [(r["field"], r["status"]) for r in out["results"]] == [
             ("headline", "UPDATED"),
@@ -372,7 +429,7 @@ class TestApply:
         ed.fail["write_headline"] = ProfileEditError(
             ProfileEditErrorCode.SELECTOR_NOT_FOUND, control="headline"
         )
-        out = await s.apply(cs["changeSetId"], confirm=True)
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert (
             out["status"] == "FAILED"
             and out["results"][0]["error"] == "SELECTOR_NOT_FOUND"
@@ -385,7 +442,7 @@ class TestApply:
         ed = FakeEditor(mangle={"headline": "Senior Product Engineer | React"})
         s = service(ed, store)
         cs = await s.propose(Proposal(headline=NEW_HEADLINE))
-        out = await s.apply(cs["changeSetId"], confirm=True)
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert out["status"] == "FAILED"
         assert out["results"][0]["error"] == "VERIFICATION_FAILED"
         assert (
@@ -402,7 +459,7 @@ class TestApply:
         ed.fail["write_about"] = RateLimitError(
             "LinkedIn security checkpoint detected."
         )
-        out = await s.apply(cs["changeSetId"], confirm=True)
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert out["status"] == "PARTIAL_FAILURE"
         assert out["results"][1]["error"] == "AUTHENTICATION_REQUIRED"
 
@@ -411,7 +468,7 @@ class TestApply:
         s = service(ed, store)
         cs = await s.propose(Proposal(headline=NEW_HEADLINE))
         ed.fail["write_headline"] = TimeoutError("navigation timed out")
-        out = await s.apply(cs["changeSetId"], confirm=True)
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert out["status"] == "FAILED" and ed.writes == []
         assert store.load(cs["changeSetId"]).status == "FAILED"
 
@@ -421,7 +478,7 @@ class TestAudit:
         ed = FakeEditor()
         s = service(ed, store)
         cs = await s.propose(Proposal(headline=NEW_HEADLINE))
-        await s.apply(cs["changeSetId"], confirm=True)
+        await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         events = [
             json.loads(line)
             for line in store.audit_log.read_text(encoding="utf-8").splitlines()
@@ -462,7 +519,7 @@ class TestReviewFindings:
             await s.preview(cs["changeSetId"])
         assert e.value.code is ProfileEditErrorCode.ACCOUNT_MISMATCH
         with pytest.raises(ProfileEditError) as e:
-            await s.apply(cs["changeSetId"], confirm=True)
+            await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert e.value.code is ProfileEditErrorCode.ACCOUNT_MISMATCH
         assert e.value.details["proposedFor"] == "https://www.linkedin.com/in/jane/"
         assert ed.writes == []
@@ -478,7 +535,9 @@ class TestReviewFindings:
         record.account = None
         store.save(record)
         assert (
-            await code_of(s.apply(cs["changeSetId"], confirm=True))
+            await code_of(
+                s.apply(cs["changeSetId"], confirm=True, notify_network=False)
+            )
             is ProfileEditErrorCode.ACCOUNT_MISMATCH
         )
 
@@ -492,7 +551,7 @@ class TestReviewFindings:
         )
         ed.fail["write_about"] = asyncio.CancelledError()
         with pytest.raises(asyncio.CancelledError):
-            await s.apply(cs["changeSetId"], confirm=True)
+            await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         record = store.load(cs["changeSetId"])
         assert record.status == "PARTIAL_FAILURE"
         assert [(r["field"], r["status"]) for r in record.results] == [
@@ -502,7 +561,9 @@ class TestReviewFindings:
         ]
         assert record.results[0]["verified"] is True
         assert (
-            await code_of(s.apply(cs["changeSetId"], confirm=True))
+            await code_of(
+                s.apply(cs["changeSetId"], confirm=True, notify_network=False)
+            )
             is ProfileEditErrorCode.CHANGE_SET_NOT_PENDING
         )
 
@@ -518,7 +579,7 @@ class TestReviewFindings:
             original_save(record)
 
         store.save = spy  # type: ignore[method-assign]
-        await s.apply(cs["changeSetId"], confirm=True)
+        await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
         assert ["UPDATED"] in seen, (
             "the first field is on disk before the second is attempted"
         )

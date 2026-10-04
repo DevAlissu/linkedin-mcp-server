@@ -49,6 +49,8 @@ class FakeEditor:
     # The signed-in account; change it to model a different login.
     account_url: str = "https://www.linkedin.com/in/jane/"
     pauses: list[float] = field(default_factory=list)
+    # The user's answer about notifying the network, as the service passed it.
+    notify: bool | None = None
 
     def _maybe_fail(self, op: str) -> None:
         if op in self.fail:
@@ -148,6 +150,12 @@ class FakeEditor:
 
     async def pause(self, seconds: float) -> None:
         self.pauses.append(seconds)
+
+    def set_network_notification(self, notify: bool | None) -> None:
+        self.notify = notify
+
+    def last_network_notification(self) -> str | None:
+        return None if self.notify is None else ("on" if self.notify else "off")
 
 
 def similar_positions() -> list[FakePosition]:
