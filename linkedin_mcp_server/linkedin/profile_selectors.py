@@ -128,8 +128,34 @@ LABELS: dict[str, dict[str, tuple[str, ...]]] = {
         "delete_skill": ("Delete skill",),
         "confirm_delete": ("Delete",),
     },
+    # Measured on 4 October 2026 against a pt-BR account (``<html lang="pt">``).
+    # The delete confirmation was not opened there, so "confirm_delete" is
+    # absent and the editor refuses to start a skill removal in this locale.
+    "pt": {
+        "title": ("Cargo*", "Cargo"),
+        "company": ("Empresa ou organização*", "Empresa ou organização"),
+        "location": ("País/Região*", "País/Região"),
+        "save": ("Salvar",),
+        "delete_skill": ("Exclua a competência",),
+    },
 }
 DEFAULT_LOCALE = "en"
+
+# The page's own language. The browser context is forced to en-US, but LinkedIn
+# renders the member's interface language: a pt-BR account shows "Salvar" under
+# that context (measured 4 October 2026).
+PAGE_LANG_JS = "() => document.documentElement.lang || ''"
+
+
+def locale_for(lang: str | None) -> str:
+    """The ``LABELS`` table for a page's ``<html lang>`` value.
+
+    Matched on the primary subtag, so "pt-BR" and "pt" share one table. A
+    language without a table gets the default one, whose labels it will not
+    match, so the editor stops at SELECTOR_NOT_FOUND instead of guessing.
+    """
+    primary = (lang or "").strip().lower().split("-", 1)[0]
+    return primary if primary in LABELS else DEFAULT_LOCALE
 
 
 # Runs in the page: list the controls in the visible dialog, for diagnostics

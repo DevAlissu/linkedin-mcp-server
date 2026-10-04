@@ -54,11 +54,13 @@ class ProfileEditor:
         session: PageSession,
         navigator: PageNavigator,
         *,
-        locale: str = sel.DEFAULT_LOCALE,
+        locale: str | None = None,
     ):
         self._session = session
         self._navigator = navigator
-        self._labels = sel.LABELS.get(locale, sel.LABELS[sel.DEFAULT_LOCALE])
+        # None: read from the first page this editor opens (see _detect_locale).
+        self._locale = locale
+        self._labels = sel.LABELS.get(locale or "", sel.LABELS[sel.DEFAULT_LOCALE])
         self._vanity: str | None = None
         self._navigations = 0
         self._experience_forms: dict[str, str] = {}
@@ -78,6 +80,18 @@ class ProfileEditor:
         self._navigations += 1
         await self._navigator._navigate_to_page(url)
         await self._session.check_rate_limit()
+        if self._locale is None:
+            await self._detect_locale()
+
+    async def _detect_locale(self) -> None:
+        """Pick the label table from the page's own language, once per editor."""
+        try:
+            lang = await self._page.evaluate(sel.PAGE_LANG_JS)
+        except Exception:
+            return  # read again on the next navigation
+        self._locale = sel.locale_for(lang if isinstance(lang, str) else None)
+        self._labels = sel.LABELS[self._locale]
+        logger.debug("Profile editor labels: %s (page lang %r)", self._locale, lang)
 
     async def _vanity_name(self) -> str:
         if self._vanity is None:
@@ -512,6 +526,14 @@ class ProfileEditor:
                 actual=heading,
             )
         await self._refuse_if_notifying("skill")
+        # Refuse before the first click when this locale's confirmation label is
+        # unknown: if that dialog never appeared, the click alone could delete.
+        if not self._labels.get("confirm_delete"):
+            raise await self._not_found(
+                "delete confirmation",
+                url,
+                f"no confirmation label measured for locale {self._locale!r}",
+            )
         delete = await self._button("delete_skill")
         if delete is None:
             raise await self._not_found(
