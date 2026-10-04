@@ -249,3 +249,48 @@ async def test_skill_removal_is_refused_before_any_click_without_a_confirm_label
         "JSON.parse(localStorage.getItem('S') || '{}').skills"
     )
     assert skills is None  # the delete button was never clicked, nothing was saved
+
+
+def test_a_role_listed_without_its_company_line_keeps_the_date_out_of_company() -> None:
+    """Measured on a pt-BR account: grouped roles come as title, dates, text."""
+    from linkedin_mcp_server.linkedin.profile_editor import _summary
+
+    summary = _summary(
+        {
+            "id": "2741078679",
+            "lines": [
+                "Desenvolvedor full stack",
+                "out. de 2025 - o momento · 1 ano 1 mês",
+                "Evolui para Desenvolvedor Fullstack no projeto iRMA.",
+            ],
+            "groupLines": [],
+        }
+    )
+
+    assert summary.company is None
+    assert summary.employment_type is None
+    assert summary.date_range == "out. de 2025 - o momento · 1 ano 1 mês"
+    assert summary.location is None
+    assert summary.description_preview == (
+        "Evolui para Desenvolvedor Fullstack no projeto iRMA."
+    )
+
+
+def test_a_role_with_its_company_line_is_unchanged() -> None:
+    from linkedin_mcp_server.linkedin.profile_editor import _summary
+
+    summary = _summary(
+        {
+            "id": "2494061345",
+            "lines": [
+                "Desenvolvedor Frontend",
+                "Ludus Lab · Meio período",
+                "ago. de 2024 - fev. de 2025 · 7 meses",
+            ],
+            "groupLines": [],
+        }
+    )
+
+    assert summary.company == "Ludus Lab"
+    assert summary.employment_type == "Meio período"
+    assert summary.date_range == "ago. de 2024 - fev. de 2025 · 7 meses"

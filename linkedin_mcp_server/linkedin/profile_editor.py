@@ -42,7 +42,11 @@ _SETTLE_MS = 500
 _SETTLE_READS = 8
 _EMPTY_SETTLE_MS = 4_000
 _VIEW_SETTLE_MS = 2_500
-_MAX_VIEW_SCROLLS = 8
+# LinkedIn allows up to 100 skills on a profile (Help answer a549047), and a
+# skills view loads about ten per scroll: a 100-skill pt-BR account read 80
+# after 8 scrolls and was refused as INCOMPLETE_READ (4 October 2026). Fifteen
+# covers a full profile with margin; a view that never stops still ends there.
+_MAX_VIEW_SCROLLS = 15
 _SCROLL_SETTLE_MS = 1_500
 _OPTION_TIMEOUT_MS = 6_000
 _DATE_RANGE = re.compile(r"\b(19|20)\d{2}\b")
@@ -567,6 +571,21 @@ def _summary(item: dict[str, Any]) -> ExperienceSummary:
     title = lines[0] if lines else ""
     company = employment = date_range = location = None
     rest = lines[1:]
+    if not group and rest and _DATE_RANGE.search(rest[0]):
+        # A role grouped under its company, rendered without the nested list
+        # that would give groupLines: the line after the title is already the
+        # date range, so the company is unknown rather than that date (measured
+        # on a pt-BR account, 4 October 2026).
+        return ExperienceSummary(
+            id=item["id"],
+            title=title,
+            company=None,
+            employment_type=None,
+            date_range=rest[0],
+            location=None,
+            description_preview=" ".join(rest[1:])[:280] or None,
+            editable=True,
+        )
     if group:  # a role grouped under its company: the group's first line is the company
         company = group[0]
     elif rest:
