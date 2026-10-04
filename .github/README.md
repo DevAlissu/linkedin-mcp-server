@@ -17,12 +17,17 @@ Ao partir da 4.26.2, esta base já traz essas proteções:
 - **Correções:** convites e busca de vagas depois das mudanças de interface de setembro de 2026.
 - **Versões:** FastMCP 4 e a especificação MCP 2026-07-28.
 
-A edição de perfil e a tradução para português ainda não estão nesta branch. Elas vão ser portadas na próxima fase, num desenho com confirmação humana feita pelo próprio servidor.
+Sobre essa base, o fork acrescenta:
+
+- **Edição do próprio perfil com aprovação.** Vem do PR #1209 do projeto original, ainda em análise lá. A IA lê o perfil e propõe as mudanças, você vê a diferença exata e aprova, e só então o servidor escreve, um campo por vez. Depois de salvar, ele relê cada campo no LinkedIn para confirmar. Cobre headline, Sobre, cargo e descrição de experiências, e adicionar ou remover competências. Em português, remover competência ainda é recusado: o botão de confirmação dessa ação não foi medido, e o servidor não clica sem saber o que vem depois.
+- **Português.** O editor descobre o idioma pela própria página e usa os rótulos medidos numa conta brasileira ("Cargo", "Salvar"...). A leitura de vagas reconhece "Sobre a vaga". Um idioma sem tabela para com erro em vez de clicar no lugar errado.
+- **Aprovação no Claude Code.** As três ferramentas que escrevem no LinkedIn (enviar mensagem, convidar e aplicar mudanças no perfil) pedem a sua aprovação a cada chamada, mesmo no modo que dispensa permissões.
+- **Correções achadas em uso real.** O perfil passa a ser lido inteiro mesmo com 100 competências, que é o máximo do LinkedIn. E em cargos agrupados na mesma empresa, a data não é mais lida como se fosse a empresa.
 
 ## Plano
 
 1. **Base nova (esta branch).** Versão 4.26.2 com a identidade do fork e sem os blocos patrocinados do README original. Depois, uso real com uma conta em português para registrar o que quebra.
-2. **Escrita com confirmação.** Toda ferramenta que escreve na conta passa a mostrar uma prévia montada pelo servidor e a exigir confirmação do usuário antes de executar. A edição de perfil volta nesse desenho, com releitura de cada campo depois de salvo, e a tradução para português passa a ser uma tabela por idioma.
+2. **Escrita com confirmação (em andamento).** Edição de perfil com prévia, aprovação e releitura, rótulos em português e aprovação obrigatória no Claude Code já estão aqui. Falta trazer as seções que a versão anterior editava e o #1209 ainda não cobre: formação, certificações, idiomas e projetos.
 3. **Ferramentas de carreira.** Comparar uma vaga com o perfil e propor as mudanças, importar a exportação oficial de dados do LinkedIn e acompanhar candidaturas localmente. Também entram etiquetas de regime (CLT, PJ, contractor), de modelo remoto e de exigência de inglês.
 4. **Canais oficiais e testes.** Publicação de posts pela API oficial, com o aplicativo do próprio usuário, e testes de segurança contra instruções escondidas em conteúdo de terceiros.
 5. **Contribuição com o projeto original.** Suporte a português em pequenas partes, no formato que o mantenedor pede.
@@ -95,6 +100,15 @@ O servidor é um processo de vida longa. Depois de atualizar o código, reinicie
 | `get_feed` | Lê os posts recentes do seu feed |
 | `search_posts` | Busca posts por palavra-chave, com filtro de data opcional |
 | `close_session` | Fecha o navegador e libera os recursos |
+| `get_my_editable_profile` | Lê o que pode ser editado no seu perfil: headline, Sobre, experiências e competências |
+| `get_my_experience` | Lista as suas experiências ou, com o id, lê o formulário de uma delas |
+| `get_my_skills` | Lista todas as suas competências, na ordem |
+| `propose_profile_changes` | Grava uma proposta de mudanças, sem escrever nada no LinkedIn |
+| `preview_profile_changes` | Mostra a diferença exata da proposta, sem escrever |
+| `apply_profile_changes` | Aplica uma proposta aprovada, campo por campo, e confere cada um |
+| `discard_profile_changes` | Descarta uma proposta |
+
+As três primeiras e as duas de proposta e prévia só leem. A escrita fica desligada até o servidor ser iniciado com `MCP_LINKEDIN_WRITE_ENABLED=true`, e cada aplicação ainda exige a sua aprovação. O guia completo, em inglês, está em [docs/profile-editing.md](../docs/profile-editing.md).
 
 A documentação completa das opções de linha de comando, de Docker e de solução de problemas está no [README do projeto original](../README.md), em inglês.
 

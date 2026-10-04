@@ -26,6 +26,12 @@ fork ate aqui (Copyright 2026 Alison Silva):
     original preservado.
   - Workflow de release herdado desarmado, para nao publicar nos canais de
     distribuicao do projeto original.
+  - Rotulos em portugues no editor de perfil, com deteccao do idioma da pagina,
+    e recusa de remover competencia quando a confirmacao nao foi medida.
+  - Cabecalho de descricao de vaga em portugues ("Sobre a vaga").
+  - Marca de aprovacao do Claude Code nas ferramentas que escrevem no LinkedIn.
+  - Leitura completa de perfis com 100 competencias e resumo correto de cargos
+    agrupados sob a mesma empresa.
 
 A edicao do proprio perfil com aprovacao (pacote profile_edit, editor e
 seletores em linkedin/, ferramentas em tools/profile_edit.py, testes e o guia
