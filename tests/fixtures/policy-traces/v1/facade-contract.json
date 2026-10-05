@@ -597,7 +597,7 @@
           "properties": {
             "changes": {
               "additionalProperties": true,
-              "description": "headline, about, experiences [{experienceId | match, title,\ndescription}], skills {add, remove}",
+              "description": "headline, about, experiences [{experienceId | match, title,\ndescription}], newExperiences [{title, company |\nsameCompanyAs, startMonth, startYear, employmentType,\nlocationType, description}], skills {add, remove}",
               "properties": {
                 "about": {
                   "anyOf": [
@@ -715,6 +715,100 @@
                     }
                   ],
                   "default": null
+                },
+                "newExperiences": {
+                  "items": {
+                    "additionalProperties": true,
+                    "properties": {
+                      "company": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Exact company name. Omit when using sameCompanyAs."
+                      },
+                      "description": {
+                        "default": "",
+                        "description": "Description, as approved by the user.",
+                        "type": "string"
+                      },
+                      "employmentType": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "full_time",
+                              "part_time",
+                              "self_employed",
+                              "freelance",
+                              "contract",
+                              "internship",
+                              "apprenticeship"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      },
+                      "locationType": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "on_site",
+                              "hybrid",
+                              "remote"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      },
+                      "sameCompanyAs": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "experienceId of an existing position whose company is copied exactly, so the new role is grouped under the same company."
+                      },
+                      "startMonth": {
+                        "description": "1 to 12.",
+                        "maximum": 12,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "startYear": {
+                        "description": "Four-digit year.",
+                        "type": "integer"
+                      },
+                      "title": {
+                        "description": "Job title, as approved by the user.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "startMonth",
+                      "startYear"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 5,
+                  "type": "array"
                 },
                 "skills": {
                   "anyOf": [

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
+import json
 import logging
 import re
 
@@ -36,6 +37,7 @@ from linkedin_mcp_server.profile_edit.errors import (
     ProfileEditErrorCode,
 )
 from linkedin_mcp_server.profile_edit.model import (
+    NewPosition,
     ExperienceForm,
     ExperienceSummary,
     OwnProfile,
@@ -68,6 +70,7 @@ class ProfileEditorPort(Protocol):
     ) -> None: ...
     async def add_skill(self, name: str) -> str: ...
     async def remove_skill(self, skill: Skill) -> None: ...
+    async def add_experience(self, position: NewPosition) -> None: ...
     async def pause(self, seconds: float) -> None: ...
     def set_network_notification(self, notify: bool | None) -> None: ...
     def last_network_notification(self) -> str | None: ...
@@ -84,12 +87,32 @@ class ExperienceEdit:
 
 
 @dataclass(frozen=True, slots=True)
+class NewExperienceRequest:
+    """A current position to add.
+
+    The company is given by name, or copied from an existing position
+    (``same_company_as``) so the new role is filed under exactly the same
+    company and groups with it.
+    """
+
+    title: str
+    start_month: int
+    start_year: int
+    company: str | None = None
+    same_company_as: str | None = None
+    employment_type: str | None = None
+    location_type: str | None = None
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Proposal:
     headline: str | None = None
     about: str | None = None
     experiences: Sequence[ExperienceEdit] = ()
     skills_add: Sequence[str] = ()
     skills_remove: Sequence[str] = ()
+    new_experiences: Sequence[NewExperienceRequest] = ()
 
     def is_empty(self) -> bool:
         return (
@@ -101,6 +124,7 @@ class Proposal:
             )
             and not self.skills_add
             and not self.skills_remove
+            and not self.new_experiences
         )
 
 
@@ -325,11 +349,30 @@ class ProfileEditService:
         current_skills: list[str] = []
         if proposal.skills_add or proposal.skills_remove:
             current_skills = [s.name for s in await self._editor.list_skills()]
+        new_positions: list[NewPosition] = []
+        experience_ids: list[str] = []
+        if proposal.new_experiences:
+            listed = await self._editor.list_experiences()
+            experience_ids = [e.id for e in listed]
+            for request in proposal.new_experiences:
+                new_positions.append(
+                    NewPosition(
+                        title=request.title,
+                        company=await self._company_for(request, listed, reads),
+                        start_month=request.start_month,
+                        start_year=request.start_year,
+                        employment_type=request.employment_type,
+                        location_type=request.location_type,
+                        description=request.description,
+                    )
+                )
         cs = build_change_set(
             texts,
             SkillsRequest(proposal.skills_add, proposal.skills_remove),
             current_skills,
             now=self._clock(),
+            new_positions=new_positions,
+            current_experience_ids=experience_ids,
         )
         cs.account = await self._editor.account()
         self._store.save(cs)
@@ -651,9 +694,77 @@ class ProfileEditService:
                 signedIn=current,
             )
 
+    async def _company_for(
+        self,
+        request: NewExperienceRequest,
+        listed: Sequence[ExperienceSummary],
+        reads: _Reads,
+    ) -> str:
+        """The exact company name to file a new position under."""
+        if (request.company is None) == (request.same_company_as is None):
+            raise ProfileEditError(
+                ProfileEditErrorCode.VALIDATION_ERROR,
+                "Each new experience needs exactly one of company or sameCompanyAs.",
+                title=request.title,
+            )
+        if request.company is not None:
+            return request.company
+        source = resolve_experience(
+            ExperienceEdit(experience_id=request.same_company_as), listed
+        )
+        company = (await reads.experience(source.id)).company
+        if not company:
+            raise ProfileEditError(
+                ProfileEditErrorCode.VALIDATION_ERROR,
+                "That experience's form shows no company to copy.",
+                experienceId=source.id,
+            )
+        return company
+
+    async def _add_position(self, change: FieldChange) -> dict[str, Any]:
+        """Add one position and prove it: exactly one new id, read back intact."""
+        position = NewPosition.from_dict(json.loads(change.after or "{}"))
+        before = {e.id for e in await self._editor.list_experiences()}
+        await self._editor.add_experience(position)
+        added = [e for e in await self._editor.list_experiences() if e.id not in before]
+        if len(added) != 1:
+            raise ProfileEditError(
+                ProfileEditErrorCode.VERIFICATION_FAILED,
+                field=change.key,
+                expected="exactly one new position",
+                newPositions=[e.as_dict() for e in added],
+            )
+        form = await self._editor.read_experience(added[0].id)
+        observed = {
+            "title": normalize_text(form.title.value),
+            "company": normalize_text(form.company or ""),
+            "description": normalize_text(form.description.value),
+        }
+        wanted = {
+            "title": position.title,
+            "company": position.company,
+            "description": position.description,
+        }
+        if observed != wanted:
+            raise ProfileEditError(
+                ProfileEditErrorCode.VERIFICATION_FAILED,
+                field=change.key,
+                experienceId=added[0].id,
+                expected=wanted,
+                observed=observed,
+            )
+        return {
+            "field": change.key,
+            "status": "ADDED",
+            "verified": True,
+            "experienceId": added[0].id,
+        }
+
     async def _apply_one(
         self, change: FieldChange, skills: dict[str, Skill]
     ) -> dict[str, Any]:
+        if change.kind == "experience_new":
+            return await self._add_position(change)
         if change.key == "headline":
             await self._editor.write_headline(
                 expected=change.before or "", value=change.after or ""
@@ -747,6 +858,10 @@ class ProfileEditService:
             elif key == "skills":
                 current[key] = sorted(
                     skill_key(s.name) for s in await self._editor.list_skills()
+                )
+            elif key == "experiences":
+                current[key] = sorted(
+                    e.id for e in await self._editor.list_experiences()
                 )
         return current
 

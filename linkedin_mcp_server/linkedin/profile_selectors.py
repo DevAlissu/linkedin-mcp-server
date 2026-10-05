@@ -60,6 +60,10 @@ def experience_form_url(vanity: str, position_id: str) -> str:
     return f"{profile_url(vanity)}details/experience/edit/forms/{position_id}/"
 
 
+def new_position_form_url(vanity: str) -> str:
+    return f"{profile_url(vanity)}edit/forms/position/new/"
+
+
 def skills_list_url(vanity: str) -> str:
     return f"{profile_url(vanity)}details/skills/"
 
@@ -108,6 +112,18 @@ SKILL_INPUT = FieldSpec(
     "skill",
     ('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])',),
 )
+# The new-position form (measured on a pt-BR account, 4 October 2026): title,
+# a company typeahead, two dropdowns, start month and year, a description and
+# one plain checkbox, "I currently work here", checked by default.
+NEW_POSITION_TITLE = FieldSpec("new_position_title", label_keys=("title",))
+NEW_POSITION_COMPANY = FieldSpec(
+    "new_position_company", label_keys=("new_position_company",)
+)
+EMPLOYMENT_TYPE = FieldSpec("employment_type", label_keys=("employment_type",))
+LOCATION_TYPE = FieldSpec("location_type", label_keys=("location_type",))
+START_MONTH = FieldSpec("start_month", label_keys=("start_month",))
+START_YEAR = FieldSpec("start_year", label_keys=("start_year",))
+CURRENT_ROLE_CHECKBOX = 'input[type="checkbox"]:not([role="switch"])'
 NOTIFY_SWITCH = 'input[role="switch"]'
 HEADINGS = "h1, h2, h3"
 
@@ -137,6 +153,34 @@ LABELS: dict[str, dict[str, tuple[str, ...]]] = {
         "location": ("País/Região*", "País/Região"),
         "save": ("Salvar",),
         "delete_skill": ("Exclua a competência",),
+        "new_position_company": ("Empresa/organização",),
+        "employment_type": ("Tipo de emprego",),
+        "location_type": ("Tipo de localidade",),
+        "start_month": ("Mês de início",),
+        "start_year": ("Ano de início*", "Ano de início"),
+    },
+}
+
+# Visible option text of the new-position dropdowns, per locale, keyed by the
+# canonical values in profile_edit.model. The start month is chosen by its
+# position instead (option 0 is the placeholder, 1 to 12 the months), and the
+# year by its digits, so neither needs a table.
+OPTION_TEXT: dict[str, dict[str, dict[str, str]]] = {
+    "pt": {
+        "employment_type": {
+            "full_time": "Tempo integral",
+            "part_time": "Meio período",
+            "self_employed": "Autônomo",
+            "freelance": "Freelancer",
+            "contract": "Contrato",
+            "internship": "Estágio",
+            "apprenticeship": "Aprendiz",
+        },
+        "location_type": {
+            "on_site": "Presencial",
+            "hybrid": "Híbrido",
+            "remote": "Remoto",
+        },
     },
 }
 DEFAULT_LOCALE = "en"

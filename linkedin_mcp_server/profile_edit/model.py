@@ -22,10 +22,24 @@ DEFAULT_LIMITS: dict[str, int] = {
     "experience_title": 100,
     "experience_description": 2000,
     "skill": 80,
+    "company": 100,
 }
 
 # Single-line fields; newlines are refused rather than silently joined.
-SINGLE_LINE = frozenset({"headline", "experience_title", "skill"})
+SINGLE_LINE = frozenset({"headline", "experience_title", "skill", "company"})
+
+# Canonical values for the new-position form's two dropdowns. Each locale maps
+# them to the option text it shows (profile_selectors.OPTION_TEXT).
+EMPLOYMENT_TYPES = (
+    "full_time",
+    "part_time",
+    "self_employed",
+    "freelance",
+    "contract",
+    "internship",
+    "apprenticeship",
+)
+LOCATION_TYPES = ("on_site", "hybrid", "remote")
 
 
 def normalize_text(value: str) -> str:
@@ -84,6 +98,39 @@ class ExperienceForm:
     title: TextField
     description: TextField
     company: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NewPosition:
+    """A current position to add, exactly as the user approved it.
+
+    Only current roles are supported: the form's "I currently work here" box
+    stays checked and no end date is set. ``company`` is the exact name the
+    position is filed under, so it groups with other roles at that company.
+    """
+
+    title: str
+    company: str
+    start_month: int
+    start_year: int
+    employment_type: str | None = None
+    location_type: str | None = None
+    description: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> NewPosition:
+        return cls(
+            title=d["title"],
+            company=d["company"],
+            start_month=int(d["start_month"]),
+            start_year=int(d["start_year"]),
+            employment_type=d.get("employment_type"),
+            location_type=d.get("location_type"),
+            description=d.get("description") or "",
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -761,13 +761,13 @@
       "openWorldHint": true,
       "readOnlyHint": true
     },
-    "description": "Creates a previewable profile change set. Does not modify LinkedIn.\n\nReads the current values of the targeted fields, validates every\nrequested value (including LinkedIn's character limits; over-long text\nis refused, never truncated), and stores a change set with before and\nafter values and a fingerprint of the profile it was planned against.\nShow the returned diff to the user. Nothing is applied until the user\napproves and apply_profile_changes is called with confirm=true.\n\nOnly send values the user has written or approved. This tool carries\ncontent; it must not be used to invent jobs, employers, dates,\nqualifications, skills or achievements. Supported: headline, about,\ntitle and description of an existing experience, adding and removing\nskills. Anything else returns UNSUPPORTED_FIELD.",
+    "description": "Creates a previewable profile change set. Does not modify LinkedIn.\n\nReads the current values of the targeted fields, validates every\nrequested value (including LinkedIn's character limits; over-long text\nis refused, never truncated), and stores a change set with before and\nafter values and a fingerprint of the profile it was planned against.\nShow the returned diff to the user. Nothing is applied until the user\napproves and apply_profile_changes is called with confirm=true.\n\nOnly send values the user has written or approved. This tool carries\ncontent; it must not be used to invent jobs, employers, dates,\nqualifications, skills or achievements. Supported: headline, about,\ntitle and description of an existing experience, adding a current\nposition (newExperiences; positions are never ended or deleted), and\nadding and removing skills. Anything else returns UNSUPPORTED_FIELD.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "changes": {
           "additionalProperties": true,
-          "description": "headline, about, experiences [{experienceId | match, title,\ndescription}], skills {add, remove}",
+          "description": "headline, about, experiences [{experienceId | match, title,\ndescription}], newExperiences [{title, company |\nsameCompanyAs, startMonth, startYear, employmentType,\nlocationType, description}], skills {add, remove}",
           "properties": {
             "about": {
               "anyOf": [
@@ -885,6 +885,100 @@
                 }
               ],
               "default": null
+            },
+            "newExperiences": {
+              "items": {
+                "additionalProperties": true,
+                "properties": {
+                  "company": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Exact company name. Omit when using sameCompanyAs."
+                  },
+                  "description": {
+                    "default": "",
+                    "description": "Description, as approved by the user.",
+                    "type": "string"
+                  },
+                  "employmentType": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "full_time",
+                          "part_time",
+                          "self_employed",
+                          "freelance",
+                          "contract",
+                          "internship",
+                          "apprenticeship"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "locationType": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "on_site",
+                          "hybrid",
+                          "remote"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "sameCompanyAs": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "experienceId of an existing position whose company is copied exactly, so the new role is grouped under the same company."
+                  },
+                  "startMonth": {
+                    "description": "1 to 12.",
+                    "maximum": 12,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "startYear": {
+                    "description": "Four-digit year.",
+                    "type": "integer"
+                  },
+                  "title": {
+                    "description": "Job title, as approved by the user.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "startMonth",
+                  "startYear"
+                ],
+                "type": "object"
+              },
+              "maxItems": 5,
+              "type": "array"
             },
             "skills": {
               "anyOf": [

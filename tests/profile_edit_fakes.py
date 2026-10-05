@@ -16,6 +16,7 @@ from linkedin_mcp_server.profile_edit.errors import (
     ProfileEditErrorCode,
 )
 from linkedin_mcp_server.profile_edit.model import (
+    NewPosition,
     ExperienceForm,
     ExperienceSummary,
     Skill,
@@ -150,6 +151,20 @@ class FakeEditor:
 
     async def pause(self, seconds: float) -> None:
         self.pauses.append(seconds)
+
+    async def add_experience(self, position: NewPosition) -> None:
+        self._maybe_fail("add_experience")
+        new_id = str(9000 + len(self.positions))
+        self.positions.append(
+            FakePosition(
+                new_id,
+                self.mangle.get("new_title", position.title),
+                position.company,
+                f"{position.start_month:02d}/{position.start_year} - Present",
+                position.description,
+            )
+        )
+        self.writes.append(f"experience-new-{position.title}")
 
     def set_network_notification(self, notify: bool | None) -> None:
         self.notify = notify

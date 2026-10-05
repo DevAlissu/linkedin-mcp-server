@@ -10,7 +10,7 @@ the change set was planned against.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
 
 import logging
 
@@ -35,6 +35,7 @@ from linkedin_mcp_server.profile_edit.errors import (
 )
 from linkedin_mcp_server.profile_edit.service import (
     ExperienceEdit,
+    NewExperienceRequest,
     ProfileEditService,
     Proposal,
 )
@@ -76,6 +77,40 @@ class SkillChanges(BaseModel):
     remove: list[str] = Field(default_factory=list, max_length=20)
 
 
+class NewExperienceChange(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    title: str = Field(description="Job title, as approved by the user.")
+    company: str | None = Field(
+        default=None,
+        description="Exact company name. Omit when using sameCompanyAs.",
+    )
+    sameCompanyAs: str | None = Field(
+        default=None,
+        description=(
+            "experienceId of an existing position whose company is copied "
+            "exactly, so the new role is grouped under the same company."
+        ),
+    )
+    startMonth: int = Field(ge=1, le=12, description="1 to 12.")
+    startYear: int = Field(description="Four-digit year.")
+    employmentType: (
+        Literal[
+            "full_time",
+            "part_time",
+            "self_employed",
+            "freelance",
+            "contract",
+            "internship",
+            "apprenticeship",
+        ]
+        | None
+    ) = None
+    locationType: Literal["on_site", "hybrid", "remote"] | None = None
+    description: str = Field(
+        default="", description="Description, as approved by the user."
+    )
+
+
 class ProfileChanges(BaseModel):
     # Extra keys are accepted so an unsupported field (location, education,
     # featured, ...) is reported back as UNSUPPORTED_FIELD instead of failing
@@ -85,6 +120,9 @@ class ProfileChanges(BaseModel):
     about: str | None = None
     experiences: list[ExperienceChange] = Field(default_factory=list, max_length=20)
     skills: SkillChanges | None = None
+    newExperiences: list[NewExperienceChange] = Field(
+        default_factory=list, max_length=5
+    )
 
 
 def _unsupported_fields(changes: ProfileChanges) -> list[str]:
@@ -98,6 +136,8 @@ def _unsupported_fields(changes: ProfileChanges) -> list[str]:
             ]
     if changes.skills is not None:
         found += [f"skills.{k}" for k in changes.skills.model_extra or {}]
+    for i, new in enumerate(changes.newExperiences):
+        found += [f"newExperiences[{i}].{k}" for k in new.model_extra or {}]
     return sorted(found)
 
 
@@ -220,13 +260,16 @@ def register_profile_edit_tools(
         Only send values the user has written or approved. This tool carries
         content; it must not be used to invent jobs, employers, dates,
         qualifications, skills or achievements. Supported: headline, about,
-        title and description of an existing experience, adding and removing
-        skills. Anything else returns UNSUPPORTED_FIELD.
+        title and description of an existing experience, adding a current
+        position (newExperiences; positions are never ended or deleted), and
+        adding and removing skills. Anything else returns UNSUPPORTED_FIELD.
 
         Args:
             ctx: FastMCP context
             changes: headline, about, experiences [{experienceId | match, title,
-                description}], skills {add, remove}
+                description}], newExperiences [{title, company |
+                sameCompanyAs, startMonth, startYear, employmentType,
+                locationType, description}], skills {add, remove}
         """
         extra = _unsupported_fields(changes)
         if extra:
@@ -253,6 +296,19 @@ def register_profile_edit_tools(
             ],
             skills_add=changes.skills.add if changes.skills else [],
             skills_remove=changes.skills.remove if changes.skills else [],
+            new_experiences=[
+                NewExperienceRequest(
+                    title=n.title,
+                    start_month=n.startMonth,
+                    start_year=n.startYear,
+                    company=n.company,
+                    same_company_as=n.sameCompanyAs,
+                    employment_type=n.employmentType,
+                    location_type=n.locationType,
+                    description=n.description,
+                )
+                for n in changes.newExperiences
+            ],
         )
         return await _run(ctx, "propose_profile_changes", lambda s: s.propose(proposal))
 

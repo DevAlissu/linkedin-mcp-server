@@ -26,6 +26,7 @@ from linkedin_mcp_server.profile_edit.errors import (
     ProfileEditErrorCode,
 )
 from linkedin_mcp_server.profile_edit.model import (
+    NewPosition,
     ExperienceForm,
     ExperienceSummary,
     Skill,
@@ -547,6 +548,140 @@ class ProfileEditor:
             skill=name,
             offered=offered,
         )
+
+    async def add_experience(self, position: NewPosition) -> None:
+        """Fill the new-position form exactly as approved, check it, then save.
+
+        Every control is read back before Save: a value the form did not take
+        stops the add with nothing saved.
+        """
+        url = sel.new_position_form_url(await self._vanity_name())
+        title = await self._open_form((url,), sel.NEW_POSITION_TITLE)
+        await title.fill(position.title)
+        if normalize_text(await title.input_value()) != position.title:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The title box did not take the exact title; nothing was saved.",
+                typed=await title.input_value(),
+            )
+        company = await self._field(sel.NEW_POSITION_COMPANY, url)
+        await self._choose_option(company, position.company, field="company")
+        for spec, value in (
+            (sel.EMPLOYMENT_TYPE, position.employment_type),
+            (sel.LOCATION_TYPE, position.location_type),
+        ):
+            if value is not None:
+                await self._select_canonical(spec, value, url)
+        await self._keep_current_role(url)
+        month = await self._field(sel.START_MONTH, url)
+        await month.select_option(index=position.start_month)
+        year = await self._field(sel.START_YEAR, url)
+        await year.select_option(label=str(position.start_year))
+        chosen = (
+            await month.evaluate("(el) => el.selectedIndex"),
+            await year.evaluate(
+                "(el) => el.options[el.selectedIndex].textContent.trim()"
+            ),
+        )
+        if chosen != (position.start_month, str(position.start_year)):
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The start date did not take; nothing was saved.",
+                selected={"month": chosen[0], "year": chosen[1]},
+            )
+        if position.description:
+            description = await self._field(sel.EXPERIENCE_DESCRIPTION, url)
+            await self._type(description, position.description)
+            typed = normalize_text((await self._read(description)).value)
+            if typed != position.description:
+                raise ProfileEditError(
+                    ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                    "The description did not take the exact text; nothing was saved.",
+                    typedLength=len(typed),
+                    wantedLength=len(position.description),
+                )
+        await self._settle_notify_switch("new position")
+        await self._save("new position", url)
+
+    async def _choose_option(self, box: Locator, text: str, *, field: str) -> None:
+        """Type into a typeahead and pick the suggestion that reads exactly *text*."""
+        await box.fill(text[:-1])
+        await box.press_sequentially(text[-1], delay=120)
+        options = self._page.locator(sel.TYPEAHEAD_OPTION)
+        try:
+            await options.first.wait_for(state="visible", timeout=_OPTION_TIMEOUT_MS)
+        except Exception:
+            raise ProfileEditError(
+                ProfileEditErrorCode.VALIDATION_ERROR,
+                f"LinkedIn offered no {field} suggestions for '{text}'; nothing was saved.",
+                **{field: text},
+            ) from None
+        offered: list[str] = []
+        for i in range(await options.count()):
+            label = normalize_text((await options.nth(i).inner_text()).split("\n")[0])
+            offered.append(label)
+            if label == text:
+                await options.nth(i).click()
+                break
+        else:
+            raise ProfileEditError(
+                ProfileEditErrorCode.VALIDATION_ERROR,
+                f"LinkedIn has no {field} named exactly '{text}'; nothing was saved.",
+                offered=offered,
+            )
+        if normalize_text(await box.input_value()) != text:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                f"The {field} box did not keep '{text}'; nothing was saved.",
+                typed=await box.input_value(),
+            )
+
+    async def _select_canonical(
+        self, spec: sel.FieldSpec, value: str, url: str
+    ) -> None:
+        """Choose a dropdown option by its canonical value, through the locale table."""
+        wanted = (
+            sel.OPTION_TEXT.get(self._locale or "", {}).get(spec.name, {}).get(value)
+        )
+        if wanted is None:
+            raise await self._not_found(
+                spec.name,
+                url,
+                f"no option text measured for {value!r} in locale {self._locale!r}",
+            )
+        select = await self._field(spec, url)
+        await select.select_option(label=wanted)
+        shown = await select.evaluate(
+            "(el) => el.options[el.selectedIndex].textContent.trim()"
+        )
+        if shown != wanted:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                f"The {spec.name} dropdown did not take '{wanted}'; nothing was saved.",
+                selected=shown,
+            )
+
+    async def _keep_current_role(self, url: str) -> None:
+        """Leave "I currently work here" checked: only current roles are added."""
+        boxes = self._dialog().locator(sel.CURRENT_ROLE_CHECKBOX)
+        count = await boxes.count()
+        if count != 1:
+            raise await self._not_found(
+                "current role checkbox",
+                url,
+                f"expected one plain checkbox, found {count}",
+            )
+        box = boxes.first
+        if not await box.is_checked():
+            try:
+                await box.set_checked(True, timeout=_FIELD_TIMEOUT_MS)
+            except Exception:
+                await box.evaluate("(el) => { if (!el.checked) el.click(); }")
+        if not await box.is_checked():
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The current-role box could not be checked; nothing was saved.",
+            )
 
     async def remove_skill(self, skill: Skill) -> None:
         if not skill.ref:

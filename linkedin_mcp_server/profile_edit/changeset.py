@@ -25,7 +25,10 @@ from linkedin_mcp_server.profile_edit.errors import (
 )
 from linkedin_mcp_server.profile_edit.model import (
     DEFAULT_LIMITS,
+    EMPLOYMENT_TYPES,
+    LOCATION_TYPES,
     SINGLE_LINE,
+    NewPosition,
     normalize_text,
 )
 
@@ -74,8 +77,9 @@ class FieldChange:
 
     ``key`` names the field uniquely and is what baselines and results are
     keyed on: ``headline``, ``about``, ``experience/<id>/title``,
-    ``experience/<id>/description``, ``skills/add/<name>``,
-    ``skills/remove/<name>``.
+    ``experience/<id>/description``, ``experience/new/<n>``,
+    ``skills/add/<name>``, ``skills/remove/<name>``. A new position's ``after``
+    is the approved ``NewPosition`` as JSON.
     """
 
     key: str
@@ -238,10 +242,100 @@ def _length_problem(label: str, value: str, limit: int) -> dict[str, Any] | None
     }
 
 
+def _plan_new_positions(
+    positions: Sequence[NewPosition],
+    current_experience_ids: Sequence[str],
+    this_year: int | None,
+    problems: list[dict[str, Any]],
+) -> tuple[list[FieldChange], dict[str, Any]]:
+    """Validate new positions; the baseline is the set of positions they join.
+
+    Adding changes the experience list, so the whole list of position ids is
+    the baseline: if a position is added or removed by hand before apply, the
+    change set goes stale instead of adding next to an unseen change.
+    """
+    changes: list[FieldChange] = []
+    seen: set[tuple[str, str]] = set()
+    for n, raw in enumerate(positions, start=1):
+        p = NewPosition(
+            title=normalize_text(raw.title),
+            company=normalize_text(raw.company),
+            start_month=raw.start_month,
+            start_year=raw.start_year,
+            employment_type=raw.employment_type,
+            location_type=raw.location_type,
+            description=normalize_text(raw.description),
+        )
+        label = f"New position {n}: {p.title or '(no title)'}"
+        for kind, value in (("experience_title", p.title), ("company", p.company)):
+            _check_text(kind, f"{label} {kind}", value, problems)
+            if not value:
+                problems.append(
+                    {"field": f"{label} {kind}", "reason": "cannot be empty"}
+                )
+            elif (
+                q := _length_problem(f"{label} {kind}", value, DEFAULT_LIMITS[kind])
+            ) is not None:
+                problems.append(q)
+        _check_text(
+            "experience_description", f"{label} description", p.description, problems
+        )
+        if (
+            q := _length_problem(
+                f"{label} description",
+                p.description,
+                DEFAULT_LIMITS["experience_description"],
+            )
+        ) is not None:
+            problems.append(q)
+        if not 1 <= p.start_month <= 12:
+            problems.append(
+                {"field": f"{label} startMonth", "reason": "must be 1 to 12"}
+            )
+        if p.start_year < 1950 or (this_year is not None and p.start_year > this_year):
+            problems.append(
+                {"field": f"{label} startYear", "reason": "not a plausible start year"}
+            )
+        if p.employment_type is not None and p.employment_type not in EMPLOYMENT_TYPES:
+            problems.append(
+                {
+                    "field": f"{label} employmentType",
+                    "reason": f"one of {', '.join(EMPLOYMENT_TYPES)}",
+                }
+            )
+        if p.location_type is not None and p.location_type not in LOCATION_TYPES:
+            problems.append(
+                {
+                    "field": f"{label} locationType",
+                    "reason": f"one of {', '.join(LOCATION_TYPES)}",
+                }
+            )
+        identity = (p.title.casefold(), p.company.casefold())
+        if identity in seen:
+            problems.append({"field": label, "reason": "requested more than once"})
+        seen.add(identity)
+        changes.append(
+            FieldChange(
+                key=f"experience/new/{n}",
+                section="experience",
+                kind="experience_new",
+                label=label,
+                action="add",
+                before=None,
+                after=json.dumps(p.as_dict(), ensure_ascii=False, sort_keys=True),
+            )
+        )
+    baseline = {"experiences": sorted(current_experience_ids)} if positions else {}
+    return changes, baseline
+
+
 def plan_changes(
     texts: Sequence[TextRequest],
     skills: SkillsRequest,
     current_skills: Sequence[str],
+    new_positions: Sequence[NewPosition] = (),
+    current_experience_ids: Sequence[str] = (),
+    this_year: int | None = None,
 ) -> tuple[list[FieldChange], dict[str, Any], list[str]]:
     """Validate requests against current values; return changes, baseline, warnings.
 
@@ -327,9 +421,15 @@ def plan_changes(
         if by_key[k] not in removes:
             removes.append(by_key[k])
 
+    position_changes, position_baseline = _plan_new_positions(
+        new_positions, current_experience_ids, this_year, problems
+    )
+
     if problems:
         raise ProfileEditError(ProfileEditErrorCode.VALIDATION_ERROR, problems=problems)
 
+    changes.extend(position_changes)
+    baseline.update(position_baseline)
     if adds or removes:
         baseline["skills"] = sorted(skill_key(s) for s in current_skills)
     for name in adds:
@@ -368,8 +468,17 @@ def build_change_set(
     *,
     now: str,
     change_set_id: str | None = None,
+    new_positions: Sequence[NewPosition] = (),
+    current_experience_ids: Sequence[str] = (),
 ) -> ChangeSet:
-    changes, baseline, warnings = plan_changes(texts, skills, current_skills)
+    changes, baseline, warnings = plan_changes(
+        texts,
+        skills,
+        current_skills,
+        new_positions,
+        current_experience_ids,
+        this_year=int(now[:4]) if now[:4].isdigit() else None,
+    )
     if not changes:
         raise ProfileEditError(
             ProfileEditErrorCode.VALIDATION_ERROR,
@@ -406,7 +515,11 @@ def render_diff(cs: ChangeSet) -> str:
     for section in dict.fromkeys(c.section for c in cs.changes):
         lines.append(section.upper())
         for c in (c for c in cs.changes if c.section == section):
-            if c.action == "add":
+            if c.kind == "experience_new" and c.after:
+                lines.extend(
+                    _new_position_lines(NewPosition.from_dict(json.loads(c.after)))
+                )
+            elif c.action == "add":
                 lines.append(f"+ {c.after}")
             elif c.action == "remove":
                 lines.append(f"- {c.before}")
@@ -417,3 +530,16 @@ def render_diff(cs: ChangeSet) -> str:
                 lines.append(f"after:  {c.after or '(empty)'}")
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+def _new_position_lines(p: NewPosition) -> list[str]:
+    details = [f"since {p.start_month:02d}/{p.start_year} (current)"]
+    details += [x for x in (p.employment_type, p.location_type) if x]
+    lines = [
+        f"+ NEW POSITION: {p.title}",
+        f"  company: {p.company}",
+        f"  {', '.join(details)}",
+    ]
+    if p.description:
+        lines.append("  description: " + p.description.replace("\n", "\n  "))
+    return lines

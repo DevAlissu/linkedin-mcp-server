@@ -180,3 +180,57 @@ async def test_nested_unsupported_fields_are_named_too(mcp):
         "experiences[0].match.endDate",
         "skills.reorder",
     ]
+
+
+async def test_a_new_experience_is_proposed_through_the_tool(mcp):
+    from profile_edit_fakes import FakePosition
+
+    ed = FakeEditor(
+        positions=[
+            FakePosition("2787721506", "Dev", "INOVA - Polo de Inovação IFAM", "2025")
+        ]
+    )
+    with patch(READY, AsyncMock(return_value=ed)):
+        cs = await call(
+            mcp,
+            "propose_profile_changes",
+            {
+                "changes": {
+                    "newExperiences": [
+                        {
+                            "title": "Líder Técnico Frontend",
+                            "sameCompanyAs": "2787721506",
+                            "startMonth": 4,
+                            "startYear": 2026,
+                            "employmentType": "part_time",
+                            "locationType": "remote",
+                        }
+                    ]
+                }
+            },
+        )
+    assert cs["status"] == "PENDING_APPROVAL" and ed.writes == []
+    assert "company: INOVA - Polo de Inovação IFAM" in cs["diff"]
+
+
+async def test_an_unknown_key_in_a_new_experience_is_reported(mcp):
+    with patch(READY, AsyncMock(return_value=FakeEditor())):
+        out = await call(
+            mcp,
+            "propose_profile_changes",
+            {
+                "changes": {
+                    "newExperiences": [
+                        {
+                            "title": "Dev",
+                            "company": "X",
+                            "startMonth": 1,
+                            "startYear": 2026,
+                            "endYear": 2027,
+                        }
+                    ]
+                }
+            },
+        )
+    assert out["error"] == "UNSUPPORTED_FIELD"
+    assert out["details"]["fields"] == ["newExperiences[0].endYear"]
