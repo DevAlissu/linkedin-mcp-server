@@ -75,6 +75,7 @@ async def test_the_start_date_is_proposed_with_its_before_and_after(store):
 
     [change] = cs["changes"]
     assert (change["before"], change["after"]) == ("04/2026", "10/2025")
+    assert cs["warnings"] == []  # a full "MM/YYYY" is not "close to the limit"
     assert ed.writes == []
 
 

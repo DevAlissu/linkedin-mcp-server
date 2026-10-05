@@ -924,6 +924,10 @@ class ProfileEditService:
         sections = list(dict.fromkeys(c.section for c in cs.changes))
         warnings = list(cs.warnings)
         for c in cs.changes:
+            # A start date is always "MM/YYYY", seven of seven characters: its
+            # limit is a format, not a budget the user could run out of.
+            if c.kind == "experience_start":
+                continue
             if c.after and c.max_length and len(c.after) > 0.9 * c.max_length:
                 warnings.append(
                     f"{c.label}: {len(c.after)}/{c.max_length} characters, close to LinkedIn's limit."

@@ -44,6 +44,41 @@ _SETTLE_MS = 500
 _SETTLE_READS = 8
 _EMPTY_SETTLE_MS = 4_000
 _VIEW_SETTLE_MS = 2_500
+# A rich-text box read line by line, the way it displays: every block is one
+# line and an empty block is a blank line. innerText cannot tell those apart,
+# because LinkedIn saves each line as its own <p>, which innerText separates
+# with a blank line: a description typed as consecutive lines read back as
+# separate paragraphs and failed verification after a good save (measured on a
+# pt-BR position description, 4 October 2026). A <br> inside a block stays a
+# line break.
+_RICH_TEXT_JS = r"""
+(el) => {
+  const BLOCK = /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE|UL|OL|SECTION|ARTICLE)$/;
+  const isBlock = (n) => n.nodeType === 1 && BLOCK.test(n.tagName);
+  const lines = [];
+  let inline = null;
+  const flush = () => {
+    if (inline !== null) lines.push(inline.replace(/\n$/, ''));
+    inline = null;
+  };
+  const walk = (node) => {
+    for (const child of node.childNodes) {
+      if (isBlock(child)) {
+        flush();
+        if ([...child.childNodes].some(isBlock)) walk(child);
+        else lines.push(child.innerText.replace(/\n$/, ''));
+      } else if (child.nodeType === 1) {
+        inline = (inline ?? '') + (child.tagName === 'BR' ? '\n' : child.innerText);
+      } else if (child.nodeType === 3) {
+        inline = (inline ?? '') + child.textContent;
+      }
+    }
+    flush();
+  };
+  walk(el);
+  return lines.join('\n');
+}
+"""
 # LinkedIn allows up to 100 skills on a profile (Help answer a549047), and a
 # skills view loads about ten per scroll: a 100-skill pt-BR account read 80
 # after 8 scrolls and was refused as INCOMPLETE_READ (4 October 2026). Fifteen
@@ -186,10 +221,10 @@ class ProfileEditor:
         else:
             # A rich-text editor fills itself after it mounts; accept a value only
             # once two reads agree, so a baseline is never taken mid-load.
-            value = await loc.inner_text()
+            value = await loc.evaluate(_RICH_TEXT_JS)
             for _ in range(_SETTLE_READS):
                 await self._page.wait_for_timeout(_SETTLE_MS)
-                again = await loc.inner_text()
+                again = await loc.evaluate(_RICH_TEXT_JS)
                 if again == value:
                     break
                 value = again
@@ -200,7 +235,7 @@ class ProfileEditor:
             while not value.strip() and waited < _EMPTY_SETTLE_MS:
                 await self._page.wait_for_timeout(_SETTLE_MS)
                 waited += _SETTLE_MS
-                value = await loc.inner_text()
+                value = await loc.evaluate(_RICH_TEXT_JS)
         return TextField(value=value, max_length=await self._limit(loc))
 
     async def _limit(self, loc: Locator) -> int | None:
