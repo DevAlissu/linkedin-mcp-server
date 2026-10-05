@@ -8,13 +8,14 @@ pending change set whose baseline still matches LinkedIn.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 import json
 import logging
 import re
+from pathlib import Path
 
 from linkedin_mcp_server.core.exceptions import (
     AccountRestrictedError,
@@ -37,6 +38,7 @@ from linkedin_mcp_server.profile_edit.errors import (
     ProfileEditErrorCode,
 )
 from linkedin_mcp_server.profile_edit.model import (
+    NewCompanyPage,
     NewPosition,
     format_start,
     ExperienceForm,
@@ -77,6 +79,8 @@ class ProfileEditorPort(Protocol):
     async def write_experience_start(
         self, experience_id: str, *, expected: str, month: int, year: int
     ) -> None: ...
+    async def create_company_page(self, page: NewCompanyPage) -> str: ...
+    async def read_company_page(self, public_url: str) -> dict[str, str]: ...
     async def pause(self, seconds: float) -> None: ...
     def set_network_notification(self, notify: bool | None) -> None: ...
     def last_network_notification(self) -> str | None: ...
@@ -121,6 +125,7 @@ class Proposal:
     skills_add: Sequence[str] = ()
     skills_remove: Sequence[str] = ()
     new_experiences: Sequence[NewExperienceRequest] = ()
+    new_company_page: NewCompanyPage | None = None
 
     def is_empty(self) -> bool:
         return (
@@ -136,6 +141,7 @@ class Proposal:
             and not self.skills_add
             and not self.skills_remove
             and not self.new_experiences
+            and self.new_company_page is None
         )
 
 
@@ -412,6 +418,16 @@ class ProfileEditService:
                         description=request.description,
                     )
                 )
+        page = proposal.new_company_page
+        if page is not None and page.logo_path:
+            logo = Path(page.logo_path).expanduser()
+            if not logo.is_file():
+                raise ProfileEditError(
+                    ProfileEditErrorCode.VALIDATION_ERROR,
+                    "The logo file does not exist.",
+                    logoPath=page.logo_path,
+                )
+            page = replace(page, logo_path=str(logo.resolve()))
         cs = build_change_set(
             texts,
             SkillsRequest(proposal.skills_add, proposal.skills_remove),
@@ -419,6 +435,7 @@ class ProfileEditService:
             now=self._clock(),
             new_positions=new_positions,
             current_experience_ids=experience_ids,
+            new_company_page=page,
         )
         cs.account = await self._editor.account()
         self._store.save(cs)
@@ -819,11 +836,42 @@ class ProfileEditService:
             "experienceId": added[0].id,
         }
 
+    async def _create_company_page(self, change: FieldChange) -> dict[str, Any]:
+        """Create the page and prove it: its public address shows the approved name."""
+        page = NewCompanyPage.from_dict(json.loads(change.after or "{}"))
+        landed = await self._editor.create_company_page(page)
+        seen = await self._editor.read_company_page(page.public_url)
+        observed = {"name": normalize_text(seen.get("name", ""))}
+        wanted = {"name": page.name}
+        if page.tagline:
+            observed["tagline"] = (
+                page.tagline if page.tagline in seen.get("text", "") else ""
+            )
+            wanted["tagline"] = page.tagline
+        if observed != wanted:
+            raise ProfileEditError(
+                ProfileEditErrorCode.VERIFICATION_FAILED,
+                "The page was submitted, but its public address does not show it as approved.",
+                field=change.key,
+                companyUrl=seen.get("url"),
+                expected=wanted,
+                observed=observed,
+            )
+        return {
+            "field": change.key,
+            "status": "CREATED",
+            "verified": True,
+            "companyUrl": seen.get("url"),
+            "adminUrl": landed,
+        }
+
     async def _apply_one(
         self, change: FieldChange, skills: dict[str, Skill]
     ) -> dict[str, Any]:
         if change.kind == "experience_new":
             return await self._add_position(change)
+        if change.kind == "company_page_new":
+            return await self._create_company_page(change)
         if change.key == "headline":
             await self._editor.write_headline(
                 expected=change.before or "", value=change.after or ""

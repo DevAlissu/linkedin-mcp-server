@@ -26,6 +26,8 @@ from linkedin_mcp_server.profile_edit.errors import (
     ProfileEditErrorCode,
 )
 from linkedin_mcp_server.profile_edit.model import (
+    ORGANIZATION_SIZES,
+    NewCompanyPage,
     NewPosition,
     format_start,
     ExperienceForm,
@@ -783,6 +785,238 @@ class ProfileEditor:
                 ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
                 "The current-role box could not be checked; nothing was saved.",
             )
+
+    # ── company page ────────────────────────────────────────────────────────
+    async def create_company_page(self, page: NewCompanyPage) -> str:
+        """Fill LinkedIn's company-page form exactly as approved, check it, submit.
+
+        Every field is read back, and LinkedIn's own field messages and the
+        state of its create button are read before submitting: a value the
+        form did not take, an address already in use or an industry that is
+        not one of LinkedIn's own stops with nothing created. A security check
+        raised on submit is handed back to the user, never solved. Returns the
+        URL LinkedIn lands on after creating the page.
+        """
+        if not page.representative_declared:
+            raise ProfileEditError(
+                ProfileEditErrorCode.VALIDATION_ERROR,
+                "The user has not stated that they represent this organization.",
+            )
+        url = sel.COMPANY_SETUP_URL
+        await self._goto(url)
+        name = await self._open_company_form(url)
+        before = await self._page.evaluate(sel.COMPANY_FORM_MESSAGES_JS)
+        await self._fill_exact(name, page.name, "name")
+        address = await self._page_field(sel.COMPANY_PAGE_URL, "page address", url)
+        await self._fill_exact(address, page.public_url, "public address")
+        if page.website:
+            website = await self._page_field(sel.COMPANY_PAGE_WEBSITE, "website", url)
+            await self._fill_exact(website, page.website, "website")
+        industry = await self._page_field(sel.COMPANY_PAGE_INDUSTRY, "industry", url)
+        await self._choose_option(industry, page.industry, field="industry")
+        await self._choose_size(page.size, url)
+        await self._choose_organization_type(page.organization_type, url)
+        if page.logo_path:
+            logo = await self._page_field(
+                sel.COMPANY_PAGE_LOGO, "logo", url, state="attached"
+            )
+            await logo.set_input_files(page.logo_path)
+            if await logo.evaluate("(el) => el.files.length") != 1:
+                raise ProfileEditError(
+                    ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                    "The logo did not attach; nothing was created.",
+                    logoPath=page.logo_path,
+                )
+        if page.tagline:
+            tagline = await self._page_field(sel.COMPANY_PAGE_TAGLINE, "tagline", url)
+            await self._fill_exact(tagline, page.tagline, "tagline")
+        terms = await self._page_field(
+            sel.COMPANY_PAGE_TERMS, "representative statement", url, state="attached"
+        )
+        if not await terms.is_checked():
+            try:
+                await terms.set_checked(True, timeout=_FIELD_TIMEOUT_MS)
+            except Exception:
+                await terms.evaluate("(el) => { if (!el.checked) el.click(); }")
+        if not await terms.is_checked():
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The representative statement could not be ticked; nothing was created.",
+            )
+        await self._page.wait_for_timeout(_SETTLE_MS)
+        problems = await self._form_messages(before)
+        create = await self._button("create_page", self._page.locator("body"))
+        if create is None:
+            raise await self._not_found("create page button", url, "no unique button")
+        if problems or await create.is_disabled():
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "LinkedIn's form does not accept these values; nothing was created.",
+                fieldMessages=problems,
+                createEnabled=not await create.is_disabled(),
+            )
+        self._last_notify = "not_offered"  # the form has no notify switch
+        await create.click()
+        # Leaving the setup address means the page exists; a challenge frame
+        # means LinkedIn wants a human, and is reported as soon as it shows.
+        challenge = self._page.locator(sel.CAPTCHA_CHALLENGE)
+        waited = 0
+        while "/company/setup/" in self._page.url:
+            if await challenge.count() and await challenge.first.is_visible():
+                raise ProfileEditError(
+                    ProfileEditErrorCode.AUTHENTICATION_REQUIRED,
+                    "LinkedIn asked for a security check before creating the page. "
+                    "Nothing was solved or retried; create the page on linkedin.com.",
+                )
+            if waited >= _SAVE_TIMEOUT_MS * 2:
+                raise ProfileEditError(
+                    ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                    "LinkedIn did not create the page.",
+                    fieldMessages=await self._form_messages(before),
+                    currentUrl=self._page.url,
+                )
+            await self._page.wait_for_timeout(_SETTLE_MS)
+            waited += _SETTLE_MS
+        return self._page.url
+
+    async def read_company_page(self, public_url: str) -> dict[str, str]:
+        """The page at linkedin.com/company/<public_url>/: its URL, name and text."""
+        await self._goto(sel.company_page_url(public_url))
+        heading = self._page.locator("h1").first
+        try:
+            await heading.wait_for(state="visible", timeout=_DIALOG_TIMEOUT_MS)
+        except Exception:
+            return {"url": self._page.url, "name": "", "text": ""}
+        return {
+            "url": self._page.url,
+            "name": (await heading.inner_text()).strip(),
+            "text": await self._page.locator("body").inner_text(),
+        }
+
+    async def _open_company_form(self, url: str) -> Locator:
+        """The form's name box, answering the page-kind chooser if it comes first.
+
+        The setup address may open on a chooser of page kinds (company,
+        showcase, school) or on the form itself; whichever shows is waited
+        for, and the chooser is answered with its company option.
+        """
+        name = self._page.locator(sel.COMPANY_PAGE_NAME)
+        kinds = [
+            # The button's name continues with a subtitle after the kind.
+            self._page.get_by_role(
+                "button", name=re.compile(rf"^{re.escape(text)}(\s|$)")
+            )
+            for text in self._labels.get("company_page_kind", ())
+        ]
+        either = name
+        for kind in kinds:
+            either = either.or_(kind)
+        try:
+            await either.first.wait_for(state="visible", timeout=_DIALOG_TIMEOUT_MS)
+        except Exception:
+            raise await self._not_found(
+                "company page form", url, "neither the form nor a page-kind chooser"
+            ) from None
+        if not await name.first.is_visible():
+            for kind in kinds:
+                if await kind.count() == 1:
+                    await kind.click()
+                    break
+            else:
+                raise await self._not_found(
+                    "company page kind", url, "no measured company option"
+                )
+        return await self._page_field(sel.COMPANY_PAGE_NAME, "page name", url)
+
+    async def _page_field(
+        self,
+        css: str,
+        what: str,
+        url: str,
+        *,
+        state: Literal["visible", "attached"] = "visible",
+    ) -> Locator:
+        """One control of a form that is a page rather than a dialog."""
+        loc = self._page.locator(css)
+        try:
+            await loc.first.wait_for(state=state, timeout=_FIELD_TIMEOUT_MS)
+        except Exception:
+            raise await self._not_found(what, url, "not on the page") from None
+        count = await loc.count()
+        if count != 1:
+            raise await self._not_found(
+                what, url, f"expected one control, found {count}"
+            )
+        return loc
+
+    async def _fill_exact(self, box: Locator, value: str, what: str) -> None:
+        await box.fill(value)
+        typed = normalize_text(await box.input_value())
+        if typed != value:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                f"The {what} box did not take the exact value; nothing was created.",
+                wanted=value,
+                typed=typed,
+            )
+
+    async def _choose_size(self, size: str, url: str) -> None:
+        select = await self._page_field(sel.COMPANY_PAGE_SIZE, "organization size", url)
+        # The placeholder, then one option per band from the smallest up.
+        if (
+            await select.evaluate("(el) => el.options.length")
+            != len(ORGANIZATION_SIZES) + 1
+        ):
+            raise await self._not_found(
+                "organization size", url, "the size bands are not the measured ones"
+            )
+        index = ORGANIZATION_SIZES.index(size) + 1
+        await select.select_option(index=index)
+        if await select.evaluate("(el) => el.selectedIndex") != index:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The organization size did not take; nothing was created.",
+                size=size,
+            )
+
+    async def _choose_organization_type(self, kind: str, url: str) -> None:
+        wanted = (
+            sel.OPTION_TEXT.get(self._locale or "", {})
+            .get("organization_type", {})
+            .get(kind)
+        )
+        if wanted is None:
+            raise await self._not_found(
+                "organization type",
+                url,
+                f"no option text measured for {kind!r} in locale {self._locale!r}",
+            )
+        select = await self._page_field(sel.COMPANY_PAGE_TYPE, "organization type", url)
+        await select.select_option(label=wanted)
+        shown = await select.evaluate(
+            "(el) => el.options[el.selectedIndex].textContent.trim()"
+        )
+        if shown != wanted:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                f"The organization type did not take '{wanted}'; nothing was created.",
+                selected=shown,
+            )
+
+    async def _form_messages(self, before: dict[str, str]) -> dict[str, str]:
+        """Field messages that appeared since the form opened, by form item.
+
+        Each field's message box also holds static help (the logo's size hint
+        is there from the start), so only text that was not there before
+        counts.
+        """
+        now = await self._page.evaluate(sel.COMPANY_FORM_MESSAGES_JS)
+        found: dict[str, str] = {}
+        for key, text in now.items():
+            if text and text != before.get(key):
+                m = re.search(r"pageCreationFormItem-(.+)-error$", key)
+                found[m.group(1) if m else key] = text
+        return found
 
     async def _keep_headline(self, headline: str) -> None:
         """Keep the profile headline when the form offers to replace it.

@@ -39,6 +39,7 @@ This guide covers the profile-editing tools added to
 | Company, end date, employment type, education, featured | partly | — returns `UNSUPPORTED_FIELD` |
 | Adding a current position (`newExperiences`) | — | ✓ title, company, start month and year, employment and location type, description |
 | Ending or deleting positions | — | — never |
+| Creating a company page (`newCompanyPage`) | — | ✓ name, address, website, industry, size, type, logo, tagline |
 | Reordering skills | — | — |
 
 The server carries text you have written or approved. It never invents jobs,
@@ -131,6 +132,26 @@ the form again and stops with `STALE_CHANGE_SET` if the date there is no longer
 the "before"; after choosing it checks that both dropdowns hold the new month
 and year, or saves nothing; after saving it reads the form back. The end date
 and the "I currently work here" box are never touched.
+
+### Creating a company page
+
+`newCompanyPage` creates a LinkedIn Page for an organization you represent,
+through LinkedIn's own setup form (linkedin.com/company/setup/new/): name,
+public address (the part after linkedin.com/company/), website, industry,
+size, organization type, logo (a local .jpg, .jpeg or .png) and tagline (up to
+120 characters). LinkedIn requires you to state that you officially represent
+the organization; `authorizedRepresentative` carries your own answer, the AI
+is told to ask for it, and without it nothing is proposed.
+
+A page is public as soon as it exists and cannot be removed from here, so the
+form is checked before it is submitted: every field is read back, the industry
+must be one of LinkedIn's own suggestions word for word, and the page is not
+submitted while LinkedIn reports a problem (an address already in use, for
+one) or keeps its create button disabled. If LinkedIn raises a security check
+on submit, the server stops and says so; it never solves one. The result
+counts as verified only when the public address shows the approved name and
+tagline. Measured on a pt-BR account; other languages stop at
+`SELECTOR_NOT_FOUND`.
 
 ## Setup
 

@@ -16,6 +16,7 @@ from linkedin_mcp_server.profile_edit.errors import (
     ProfileEditErrorCode,
 )
 from linkedin_mcp_server.profile_edit.model import (
+    NewCompanyPage,
     NewPosition,
     ExperienceForm,
     ExperienceSummary,
@@ -53,6 +54,8 @@ class FakeEditor:
     pauses: list[float] = field(default_factory=list)
     # The user's answer about notifying the network, as the service passed it.
     notify: bool | None = None
+    # Company pages created, by public address, as the page would show them.
+    company_pages: dict[str, NewCompanyPage] = field(default_factory=dict)
 
     def _maybe_fail(self, op: str) -> None:
         if op in self.fail:
@@ -188,6 +191,27 @@ class FakeEditor:
             )
         )
         self.writes.append(f"experience-new-{position.title}")
+
+    async def create_company_page(self, page: NewCompanyPage) -> str:
+        self._maybe_fail("create_company_page")
+        if page.public_url in self.company_pages:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                fieldMessages={"UNIVERSAL-NAME": "address in use"},
+            )
+        self.company_pages[page.public_url] = page
+        self.writes.append(f"company-page-{page.public_url}")
+        return "https://www.linkedin.com/company/123/admin/dashboard/"
+
+    async def read_company_page(self, public_url: str) -> dict[str, str]:
+        url = f"https://www.linkedin.com/company/{public_url}/"
+        page = self.company_pages.get(public_url)
+        if page is None:
+            return {"url": url, "name": "", "text": ""}
+        name = self.mangle.get("page_name", page.name)
+        tagline = self.mangle.get("page_tagline", page.tagline)
+        text = "\n".join((name, tagline, page.industry))
+        return {"url": url, "name": name, "text": text}
 
     def set_network_notification(self, notify: bool | None) -> None:
         self.notify = notify

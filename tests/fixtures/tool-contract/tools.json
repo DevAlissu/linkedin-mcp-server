@@ -761,13 +761,13 @@
       "openWorldHint": true,
       "readOnlyHint": true
     },
-    "description": "Creates a previewable profile change set. Does not modify LinkedIn.\n\nReads the current values of the targeted fields, validates every\nrequested value (including LinkedIn's character limits; over-long text\nis refused, never truncated), and stores a change set with before and\nafter values and a fingerprint of the profile it was planned against.\nShow the returned diff to the user. Nothing is applied until the user\napproves and apply_profile_changes is called with confirm=true.\n\nOnly send values the user has written or approved. This tool carries\ncontent; it must not be used to invent jobs, employers, dates,\nqualifications, skills or achievements. Supported: headline, about,\ntitle, description and start date of an existing experience, adding\na current position (newExperiences, one per change set; positions are\nnever ended or deleted), and adding and removing skills. Anything else\nreturns UNSUPPORTED_FIELD.",
+    "description": "Creates a previewable profile change set. Does not modify LinkedIn.\n\nReads the current values of the targeted fields, validates every\nrequested value (including LinkedIn's character limits; over-long text\nis refused, never truncated), and stores a change set with before and\nafter values and a fingerprint of the profile it was planned against.\nShow the returned diff to the user. Nothing is applied until the user\napproves and apply_profile_changes is called with confirm=true.\n\nOnly send values the user has written or approved. This tool carries\ncontent; it must not be used to invent jobs, employers, dates,\nqualifications, skills or achievements. Supported: headline, about,\ntitle, description and start date of an existing experience, adding\na current position (newExperiences, one per change set; positions are\nnever ended or deleted), adding and removing skills, and creating a\nLinkedIn Page for an organization the user represents\n(newCompanyPage). Anything else returns UNSUPPORTED_FIELD.\n\nA company page is public and cannot be undone from here. Before\nproposing one, ask the user whether they officially represent the\norganization; authorizedRepresentative carries their answer and is\nnever assumed.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "changes": {
           "additionalProperties": true,
-          "description": "headline, about, experiences [{experienceId | match, title,\ndescription, startMonth, startYear}], newExperiences [{title, company |\nsameCompanyAs, startMonth, startYear, employmentType,\nlocationType, description}], skills {add, remove}",
+          "description": "headline, about, experiences [{experienceId | match, title,\ndescription, startMonth, startYear}], newExperiences [{title, company |\nsameCompanyAs, startMonth, startYear, employmentType,\nlocationType, description}], skills {add, remove},\nnewCompanyPage {name, publicUrl, industry, size,\norganizationType, website, tagline, logoPath,\nauthorizedRepresentative}",
           "properties": {
             "about": {
               "anyOf": [
@@ -905,6 +905,86 @@
               "anyOf": [
                 {
                   "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "newCompanyPage": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "properties": {
+                    "authorizedRepresentative": {
+                      "default": false,
+                      "description": "The user's own statement that they officially represent this organization and accept LinkedIn's Pages terms. Ask the user; never assume it.",
+                      "type": "boolean"
+                    },
+                    "industry": {
+                      "description": "Exactly one of LinkedIn's own industry names, in the page's language.",
+                      "type": "string"
+                    },
+                    "logoPath": {
+                      "default": "",
+                      "description": "Local .jpg, .jpeg or .png file.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Organization name, as approved by the user.",
+                      "type": "string"
+                    },
+                    "organizationType": {
+                      "enum": [
+                        "public_company",
+                        "self_employed",
+                        "government_agency",
+                        "nonprofit",
+                        "sole_proprietorship",
+                        "privately_held",
+                        "partnership"
+                      ],
+                      "type": "string"
+                    },
+                    "publicUrl": {
+                      "description": "The page address after linkedin.com/company/; must be free.",
+                      "type": "string"
+                    },
+                    "size": {
+                      "description": "Number of employees.",
+                      "enum": [
+                        "0-1",
+                        "2-10",
+                        "11-50",
+                        "51-200",
+                        "201-500",
+                        "501-1000",
+                        "1001-5000",
+                        "5001-10000",
+                        "10001+"
+                      ],
+                      "type": "string"
+                    },
+                    "tagline": {
+                      "default": "",
+                      "description": "Up to 120 characters.",
+                      "type": "string"
+                    },
+                    "website": {
+                      "default": "",
+                      "description": "Starts with http://, https:// or www.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "publicUrl",
+                    "industry",
+                    "size",
+                    "organizationType"
+                  ],
+                  "type": "object"
                 },
                 {
                   "type": "null"

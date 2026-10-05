@@ -27,7 +27,11 @@ from linkedin_mcp_server.profile_edit.model import (
     DEFAULT_LIMITS,
     EMPLOYMENT_TYPES,
     LOCATION_TYPES,
+    LOGO_SUFFIXES,
+    ORGANIZATION_SIZES,
+    ORGANIZATION_TYPES,
     SINGLE_LINE,
+    NewCompanyPage,
     NewPosition,
     normalize_text,
 )
@@ -69,6 +73,10 @@ _TRANSITIONS: dict[ChangeSetStatus, frozenset[ChangeSetStatus]] = {
 
 # Control characters other than newline and tab are never valid profile text.
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+# A page's public address after linkedin.com/company/, and a website as the
+# form's own hint asks for it ("Comece com http://, https:// ou www.").
+_PUBLIC_URL = re.compile(r"[a-z0-9][a-z0-9-]{1,99}")
+_WEBSITE = re.compile(r"(https?://|www\.)\S+", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +337,90 @@ def _plan_new_positions(
     return changes, baseline
 
 
+def _plan_new_company_page(
+    raw: NewCompanyPage, problems: list[dict[str, Any]]
+) -> FieldChange:
+    """Validate a company page to create.
+
+    It has no baseline: nothing on the profile changes. The one thing that can
+    change under it, its public address being taken, is checked by LinkedIn's
+    own form at apply time, before anything is submitted.
+    """
+    page = NewCompanyPage(
+        name=normalize_text(raw.name),
+        public_url=normalize_text(raw.public_url).lower(),
+        industry=normalize_text(raw.industry),
+        size=raw.size,
+        organization_type=raw.organization_type,
+        website=normalize_text(raw.website),
+        tagline=normalize_text(raw.tagline),
+        logo_path=raw.logo_path,
+        representative_declared=raw.representative_declared,
+    )
+    label = f"New company page: {page.name or '(no name)'}"
+    for kind, what, value in (
+        ("company_page_name", "name", page.name),
+        ("company_tagline", "tagline", page.tagline),
+    ):
+        _check_text(kind, f"{label} {what}", value, problems)
+        if (
+            q := _length_problem(f"{label} {what}", value, DEFAULT_LIMITS[kind])
+        ) is not None:
+            problems.append(q)
+    for what, value in (("name", page.name), ("industry", page.industry)):
+        if not value:
+            problems.append({"field": f"{label} {what}", "reason": "cannot be empty"})
+    if not _PUBLIC_URL.fullmatch(page.public_url):
+        problems.append(
+            {
+                "field": f"{label} publicUrl",
+                "reason": "2 to 100 letters, digits or hyphens, starting with a letter or digit",
+            }
+        )
+    if page.website and not _WEBSITE.fullmatch(page.website):
+        problems.append(
+            {
+                "field": f"{label} website",
+                "reason": "must start with http://, https:// or www.",
+            }
+        )
+    if page.size not in ORGANIZATION_SIZES:
+        problems.append(
+            {
+                "field": f"{label} size",
+                "reason": f"one of {', '.join(ORGANIZATION_SIZES)}",
+            }
+        )
+    if page.organization_type not in ORGANIZATION_TYPES:
+        problems.append(
+            {
+                "field": f"{label} organizationType",
+                "reason": f"one of {', '.join(ORGANIZATION_TYPES)}",
+            }
+        )
+    if page.logo_path and not page.logo_path.lower().endswith(LOGO_SUFFIXES):
+        problems.append(
+            {"field": f"{label} logoPath", "reason": "a .jpg, .jpeg or .png file"}
+        )
+    if not page.representative_declared:
+        problems.append(
+            {
+                "field": f"{label} authorizedRepresentative",
+                "reason": "LinkedIn requires the user to state that they officially "
+                "represent the organization; ask the user, never assume it",
+            }
+        )
+    return FieldChange(
+        key="company/new",
+        section="company",
+        kind="company_page_new",
+        label=label,
+        action="add",
+        before=None,
+        after=json.dumps(page.as_dict(), ensure_ascii=False, sort_keys=True),
+    )
+
+
 def plan_changes(
     texts: Sequence[TextRequest],
     skills: SkillsRequest,
@@ -336,6 +428,7 @@ def plan_changes(
     new_positions: Sequence[NewPosition] = (),
     current_experience_ids: Sequence[str] = (),
     this_year: int | None = None,
+    new_company_page: NewCompanyPage | None = None,
 ) -> tuple[list[FieldChange], dict[str, Any], list[str]]:
     """Validate requests against current values; return changes, baseline, warnings.
 
@@ -424,11 +517,18 @@ def plan_changes(
     position_changes, position_baseline = _plan_new_positions(
         new_positions, current_experience_ids, this_year, problems
     )
+    page_change = (
+        _plan_new_company_page(new_company_page, problems)
+        if new_company_page is not None
+        else None
+    )
 
     if problems:
         raise ProfileEditError(ProfileEditErrorCode.VALIDATION_ERROR, problems=problems)
 
     changes.extend(position_changes)
+    if page_change is not None:
+        changes.append(page_change)
     baseline.update(position_baseline)
     if adds or removes:
         baseline["skills"] = sorted(skill_key(s) for s in current_skills)
@@ -470,6 +570,7 @@ def build_change_set(
     change_set_id: str | None = None,
     new_positions: Sequence[NewPosition] = (),
     current_experience_ids: Sequence[str] = (),
+    new_company_page: NewCompanyPage | None = None,
 ) -> ChangeSet:
     changes, baseline, warnings = plan_changes(
         texts,
@@ -478,6 +579,7 @@ def build_change_set(
         new_positions,
         current_experience_ids,
         this_year=int(now[:4]) if now[:4].isdigit() else None,
+        new_company_page=new_company_page,
     )
     if not changes:
         raise ProfileEditError(
@@ -519,6 +621,12 @@ def render_diff(cs: ChangeSet) -> str:
                 lines.extend(
                     _new_position_lines(NewPosition.from_dict(json.loads(c.after)))
                 )
+            elif c.kind == "company_page_new" and c.after:
+                lines.extend(
+                    _new_company_page_lines(
+                        NewCompanyPage.from_dict(json.loads(c.after))
+                    )
+                )
             elif c.action == "add":
                 lines.append(f"+ {c.after}")
             elif c.action == "remove":
@@ -542,4 +650,27 @@ def _new_position_lines(p: NewPosition) -> list[str]:
     ]
     if p.description:
         lines.append("  description: " + p.description.replace("\n", "\n  "))
+    return lines
+
+
+def _new_company_page_lines(p: NewCompanyPage) -> list[str]:
+    lines = [
+        f"+ NEW COMPANY PAGE: {p.name}",
+        f"  address: linkedin.com/company/{p.public_url}",
+        f"  industry: {p.industry}",
+        f"  size: {p.size} employees, type: {p.organization_type}",
+    ]
+    lines += [
+        f"  {k}: {v}"
+        for k, v in (
+            ("website", p.website),
+            ("tagline", p.tagline),
+            ("logo", p.logo_path),
+        )
+        if v
+    ]
+    lines.append(
+        "  the user states they officially represent this organization and accept "
+        "LinkedIn's Pages terms"
+    )
     return lines

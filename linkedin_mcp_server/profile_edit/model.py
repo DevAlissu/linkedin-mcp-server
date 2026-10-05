@@ -24,11 +24,23 @@ DEFAULT_LIMITS: dict[str, int] = {
     "skill": 80,
     "company": 100,
     "experience_start": 7,
+    # The company-page form states 120 for the tagline ("0/120", measured
+    # 4 October 2026) and no limit for the name, kept at a company's 100.
+    "company_page_name": 100,
+    "company_tagline": 120,
 }
 
 # Single-line fields; newlines are refused rather than silently joined.
 SINGLE_LINE = frozenset(
-    {"headline", "experience_title", "skill", "company", "experience_start"}
+    {
+        "headline",
+        "experience_title",
+        "skill",
+        "company",
+        "experience_start",
+        "company_page_name",
+        "company_tagline",
+    }
 )
 
 # Canonical values for the new-position form's two dropdowns. Each locale maps
@@ -43,6 +55,32 @@ EMPLOYMENT_TYPES = (
     "apprenticeship",
 )
 LOCATION_TYPES = ("on_site", "hybrid", "remote")
+
+# The company-page form's dropdowns. Sizes are chosen by position, because the
+# bands run from the smallest up with the placeholder first; types go through
+# the locale table like the new-position dropdowns.
+ORGANIZATION_SIZES = (
+    "0-1",
+    "2-10",
+    "11-50",
+    "51-200",
+    "201-500",
+    "501-1000",
+    "1001-5000",
+    "5001-10000",
+    "10001+",
+)
+ORGANIZATION_TYPES = (
+    "public_company",
+    "self_employed",
+    "government_agency",
+    "nonprofit",
+    "sole_proprietorship",
+    "privately_held",
+    "partnership",
+)
+# What the logo input accepts (its accept attribute, measured).
+LOGO_SUFFIXES = (".jpg", ".jpeg", ".png")
 
 
 def normalize_text(value: str) -> str:
@@ -146,6 +184,44 @@ class NewPosition:
             employment_type=d.get("employment_type"),
             location_type=d.get("location_type"),
             description=d.get("description") or "",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class NewCompanyPage:
+    """A LinkedIn Page to create for an organization, exactly as approved.
+
+    ``public_url`` is the part after linkedin.com/company/. ``logo_path`` is a
+    local image file. ``representative_declared`` is the user's own statement
+    that they represent the organization, which LinkedIn's form requires; the
+    server ticks that box only when it is true.
+    """
+
+    name: str
+    public_url: str
+    industry: str
+    size: str
+    organization_type: str
+    website: str = ""
+    tagline: str = ""
+    logo_path: str = ""
+    representative_declared: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> NewCompanyPage:
+        return cls(
+            name=d["name"],
+            public_url=d["public_url"],
+            industry=d["industry"],
+            size=d["size"],
+            organization_type=d["organization_type"],
+            website=d.get("website") or "",
+            tagline=d.get("tagline") or "",
+            logo_path=d.get("logo_path") or "",
+            representative_declared=bool(d.get("representative_declared")),
         )
 
 

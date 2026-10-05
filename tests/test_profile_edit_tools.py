@@ -234,3 +234,53 @@ async def test_an_unknown_key_in_a_new_experience_is_reported(mcp):
         )
     assert out["error"] == "UNSUPPORTED_FIELD"
     assert out["details"]["fields"] == ["newExperiences[0].endYear"]
+
+
+BEDOC_PAGE = {
+    "name": "BeDoc",
+    "publicUrl": "sejabedoc",
+    "industry": "Hospitais e atividades de atenção à saúde humana",
+    "size": "2-10",
+    "organizationType": "privately_held",
+    "website": "https://sejabedoc.com.br",
+    "tagline": "Triagem por IA que leva o paciente ao especialista certo.",
+}
+
+
+async def test_a_company_page_is_proposed_through_the_tool(mcp):
+    ed = FakeEditor()
+    with patch(READY, AsyncMock(return_value=ed)):
+        cs = await call(
+            mcp,
+            "propose_profile_changes",
+            {
+                "changes": {
+                    "newCompanyPage": {**BEDOC_PAGE, "authorizedRepresentative": True}
+                }
+            },
+        )
+    assert cs["status"] == "PENDING_APPROVAL" and ed.writes == []
+    assert "+ NEW COMPANY PAGE: BeDoc" in cs["diff"]
+    assert "linkedin.com/company/sejabedoc" in cs["diff"]
+
+
+async def test_a_company_page_needs_the_users_statement(mcp):
+    with patch(READY, AsyncMock(return_value=FakeEditor())):
+        out = await call(
+            mcp, "propose_profile_changes", {"changes": {"newCompanyPage": BEDOC_PAGE}}
+        )
+    assert out["error"] == "VALIDATION_ERROR"
+    assert [p["field"] for p in out["details"]["problems"]] == [
+        "New company page: BeDoc authorizedRepresentative"
+    ]
+
+
+async def test_an_unknown_key_in_a_company_page_is_reported(mcp):
+    with patch(READY, AsyncMock(return_value=FakeEditor())):
+        out = await call(
+            mcp,
+            "propose_profile_changes",
+            {"changes": {"newCompanyPage": {**BEDOC_PAGE, "foundedYear": 2025}}},
+        )
+    assert out["error"] == "UNSUPPORTED_FIELD"
+    assert out["details"]["fields"] == ["newCompanyPage.foundedYear"]

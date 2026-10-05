@@ -127,6 +127,34 @@ CURRENT_ROLE_CHECKBOX = 'input[type="checkbox"]:not([role="switch"])'
 # The new-position form's "update profile headline" choice: one option per
 # headline it offers, the current one marked "(current)" in an <em>.
 HEADLINE_CHOICE = '[role="radiogroup"] [role="radio"]'
+
+# The company-page form is a page, not a dialog. Its controls carry ids that
+# end in LinkedIn's form-item names, the same in every locale (measured on a
+# pt-BR account, 4 October 2026); each field's message sits in "<id>-error".
+COMPANY_SETUP_URL = f"{LINKEDIN}/company/setup/new/"
+COMPANY_PAGE_NAME = '[id$="pageCreationFormItem-NAME"]'
+COMPANY_PAGE_URL = '[id$="pageCreationFormItem-UNIVERSAL-NAME"]'
+COMPANY_PAGE_WEBSITE = '[id$="pageCreationFormItem-WEBSITE"]'
+COMPANY_PAGE_INDUSTRY = '[id$="pageCreationFormItem-INDUSTRY"]'
+COMPANY_PAGE_SIZE = '[id$="pageCreationFormItem-ORGANIZATION-SIZE"]'
+COMPANY_PAGE_TYPE = '[id$="pageCreationFormItem-ORGANIZATION-TYPE"]'
+COMPANY_PAGE_LOGO = '[id$="pageCreationFormItem-LOGO"]'
+COMPANY_PAGE_TAGLINE = '[id$="pageCreationFormItem-TAGLINE"]'
+COMPANY_PAGE_TERMS = 'input[type="checkbox"][name$="TERMS_AND_CONDITIONS"]'
+COMPANY_FORM_MESSAGES_JS = r"""
+() => Object.fromEntries(
+  [...document.querySelectorAll('[id*="pageCreationFormItem"][id$="-error"]')]
+    .map((e) => [e.id, (e.innerText || '').trim()]))
+"""
+# A reCAPTCHA challenge LinkedIn may raise on submit; the server never solves one.
+CAPTCHA_CHALLENGE = 'iframe[src*="recaptcha"][src*="bframe"]'
+COMPANY_ID_FROM_URL = re.compile(r"/company/(\d+)")
+
+
+def company_page_url(public_url: str) -> str:
+    return f"{LINKEDIN}/company/{public_url}/"
+
+
 NOTIFY_SWITCH = 'input[role="switch"]'
 HEADINGS = "h1, h2, h3"
 
@@ -161,6 +189,11 @@ LABELS: dict[str, dict[str, tuple[str, ...]]] = {
         "location_type": ("Tipo de localidade",),
         "start_month": ("Mês de início",),
         "start_year": ("Ano de início*", "Ano de início"),
+        # The company-page flow (linkedin.com/company/setup/new/): the
+        # page-kind chooser's first button, whose accessible name continues
+        # with a subtitle, and the form's submit button.
+        "company_page_kind": ("Empresa",),
+        "create_page": ("Criar página",),
     },
 }
 
@@ -183,6 +216,15 @@ OPTION_TEXT: dict[str, dict[str, dict[str, str]]] = {
             "on_site": "Presencial",
             "hybrid": "Híbrido",
             "remote": "Remoto",
+        },
+        "organization_type": {
+            "public_company": "Empresa de capital aberto",
+            "self_employed": "Autônomo",
+            "government_agency": "Órgão governamental",
+            "nonprofit": "ONG",
+            "sole_proprietorship": "Firma individual",
+            "privately_held": "Empresa privada",
+            "partnership": "Sociedade",
         },
     },
 }

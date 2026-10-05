@@ -33,6 +33,7 @@ from linkedin_mcp_server.profile_edit.errors import (
     ProfileEditError,
     ProfileEditErrorCode,
 )
+from linkedin_mcp_server.profile_edit.model import NewCompanyPage
 from linkedin_mcp_server.profile_edit.service import (
     ExperienceEdit,
     NewExperienceRequest,
@@ -117,6 +118,50 @@ class NewExperienceChange(BaseModel):
     )
 
 
+class NewCompanyPageChange(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    name: str = Field(description="Organization name, as approved by the user.")
+    publicUrl: str = Field(
+        description="The page address after linkedin.com/company/; must be free."
+    )
+    industry: str = Field(
+        description="Exactly one of LinkedIn's own industry names, in the page's language."
+    )
+    size: Literal[
+        "0-1",
+        "2-10",
+        "11-50",
+        "51-200",
+        "201-500",
+        "501-1000",
+        "1001-5000",
+        "5001-10000",
+        "10001+",
+    ] = Field(description="Number of employees.")
+    organizationType: Literal[
+        "public_company",
+        "self_employed",
+        "government_agency",
+        "nonprofit",
+        "sole_proprietorship",
+        "privately_held",
+        "partnership",
+    ]
+    website: str = Field(
+        default="", description="Starts with http://, https:// or www."
+    )
+    tagline: str = Field(default="", description="Up to 120 characters.")
+    logoPath: str = Field(default="", description="Local .jpg, .jpeg or .png file.")
+    authorizedRepresentative: bool = Field(
+        default=False,
+        description=(
+            "The user's own statement that they officially represent this "
+            "organization and accept LinkedIn's Pages terms. Ask the user; "
+            "never assume it."
+        ),
+    )
+
+
 class ProfileChanges(BaseModel):
     # Extra keys are accepted so an unsupported field (location, education,
     # featured, ...) is reported back as UNSUPPORTED_FIELD instead of failing
@@ -131,6 +176,7 @@ class ProfileChanges(BaseModel):
     newExperiences: list[NewExperienceChange] = Field(
         default_factory=list, max_length=1
     )
+    newCompanyPage: NewCompanyPageChange | None = None
 
 
 def _unsupported_fields(changes: ProfileChanges) -> list[str]:
@@ -146,6 +192,10 @@ def _unsupported_fields(changes: ProfileChanges) -> list[str]:
         found += [f"skills.{k}" for k in changes.skills.model_extra or {}]
     for i, new in enumerate(changes.newExperiences):
         found += [f"newExperiences[{i}].{k}" for k in new.model_extra or {}]
+    if changes.newCompanyPage is not None:
+        found += [
+            f"newCompanyPage.{k}" for k in changes.newCompanyPage.model_extra or {}
+        ]
     return sorted(found)
 
 
@@ -270,15 +320,24 @@ def register_profile_edit_tools(
         qualifications, skills or achievements. Supported: headline, about,
         title, description and start date of an existing experience, adding
         a current position (newExperiences, one per change set; positions are
-        never ended or deleted), and adding and removing skills. Anything else
-        returns UNSUPPORTED_FIELD.
+        never ended or deleted), adding and removing skills, and creating a
+        LinkedIn Page for an organization the user represents
+        (newCompanyPage). Anything else returns UNSUPPORTED_FIELD.
+
+        A company page is public and cannot be undone from here. Before
+        proposing one, ask the user whether they officially represent the
+        organization; authorizedRepresentative carries their answer and is
+        never assumed.
 
         Args:
             ctx: FastMCP context
             changes: headline, about, experiences [{experienceId | match, title,
                 description, startMonth, startYear}], newExperiences [{title, company |
                 sameCompanyAs, startMonth, startYear, employmentType,
-                locationType, description}], skills {add, remove}
+                locationType, description}], skills {add, remove},
+                newCompanyPage {name, publicUrl, industry, size,
+                organizationType, website, tagline, logoPath,
+                authorizedRepresentative}
         """
         extra = _unsupported_fields(changes)
         if extra:
@@ -320,6 +379,21 @@ def register_profile_edit_tools(
                 )
                 for n in changes.newExperiences
             ],
+            new_company_page=(
+                NewCompanyPage(
+                    name=page.name,
+                    public_url=page.publicUrl,
+                    industry=page.industry,
+                    size=page.size,
+                    organization_type=page.organizationType,
+                    website=page.website,
+                    tagline=page.tagline,
+                    logo_path=page.logoPath,
+                    representative_declared=page.authorizedRepresentative,
+                )
+                if (page := changes.newCompanyPage) is not None
+                else None
+            ),
         )
         return await _run(ctx, "propose_profile_changes", lambda s: s.propose(proposal))
 
