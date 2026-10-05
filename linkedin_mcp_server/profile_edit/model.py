@@ -23,10 +23,13 @@ DEFAULT_LIMITS: dict[str, int] = {
     "experience_description": 2000,
     "skill": 80,
     "company": 100,
+    "experience_start": 7,
 }
 
 # Single-line fields; newlines are refused rather than silently joined.
-SINGLE_LINE = frozenset({"headline", "experience_title", "skill", "company"})
+SINGLE_LINE = frozenset(
+    {"headline", "experience_title", "skill", "company", "experience_start"}
+)
 
 # Canonical values for the new-position form's two dropdowns. Each locale maps
 # them to the option text it shows (profile_selectors.OPTION_TEXT).
@@ -53,6 +56,10 @@ def normalize_text(value: str) -> str:
     """
     text = value.replace("\r\n", "\n").replace("\r", "\n").strip()
     return _BLANK_LINES.sub("\n\n", text)
+
+
+def format_start(month: int, year: int) -> str:
+    return f"{month:02d}/{year}"
 
 
 _BLANK_LINES = re.compile(r"\n[ \t]*\n(?:[ \t]*\n)+")
@@ -98,6 +105,15 @@ class ExperienceForm:
     title: TextField
     description: TextField
     company: str | None = None
+    start_month: int | None = None
+    start_year: int | None = None
+
+    @property
+    def start(self) -> str:
+        """The start date as "MM/YYYY", the form a change set compares; "" if unread."""
+        if self.start_month is None or self.start_year is None:
+            return ""
+        return format_start(self.start_month, self.start_year)
 
 
 @dataclass(frozen=True, slots=True)

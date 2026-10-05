@@ -670,8 +670,8 @@ get_my_editable_profile → propose_profile_changes → preview_profile_changes
         → you approve → apply_profile_changes(confirm=true) → every field re-read and verified
 ```
 
-- **Edits:** headline, About, title and description of an existing position,
-  adding and removing skills.
+- **Edits:** headline, About, title, description and start date of an existing
+  position, adding a current position, adding and removing skills.
 - **Two switches:** the server needs `MCP_LINKEDIN_WRITE_ENABLED=true` *and*
   each apply needs `confirm: true`. Writes are off by default.
 - **Never overwrites your own edits:** if the profile changed after the

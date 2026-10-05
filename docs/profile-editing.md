@@ -33,9 +33,10 @@ This guide covers the profile-editing tools added to
 | About | ✓ | ✓ |
 | Experience: title | ✓ | ✓ |
 | Experience: description | ✓ | ✓ |
+| Experience: start month and year | ✓ | ✓ |
 | Skills | ✓ (all of them, with order) | add, remove |
 | Name, location | ✓ | — |
-| Company, dates, employment type, education, featured | partly | — returns `UNSUPPORTED_FIELD` |
+| Company, end date, employment type, education, featured | partly | — returns `UNSUPPORTED_FIELD` |
 | Adding a current position (`newExperiences`) | — | ✓ title, company, start month and year, employment and location type, description |
 | Ending or deleting positions | — | — never |
 | Reordering skills | — | — |
@@ -105,17 +106,28 @@ READ ──► PROPOSE ──► PREVIEW ──► APPLY (you approve) ──►
 
 ### Adding a position
 
-`newExperiences` adds a role you hold now. The company is either named exactly
-or copied from an existing position with `sameCompanyAs`, so the new role is
-filed under the same company and groups with it. The company must appear among
-LinkedIn's own suggestions with exactly that name, or nothing is saved. The
-form's "I currently work here" box stays checked, every field is read back
-before Save, and the result counts as verified only when exactly one new
-position appears and reads back with the approved title, company and
-description. The proposal is planned against the list of your positions: if
-one is added or removed by hand before you apply, it goes stale. Measured on a
+`newExperiences` adds a role you hold now, one per change set: each add reads
+your positions before and after and takes about two minutes. The company is
+either named exactly or copied from an existing position with `sameCompanyAs`,
+so the new role is filed under the same company and groups with it. The company
+must appear among LinkedIn's own suggestions with exactly that name, or nothing
+is saved. The form's "I currently work here" box stays checked, every field is
+read back before Save, and the result counts as verified only when exactly one
+new position appears and reads back with the approved title, company and
+description. The proposal is planned against the list of your positions: if one
+is added or removed by hand before you apply, it goes stale. Measured on a
 pt-BR account; on a language without measured labels the add stops at
 `SELECTOR_NOT_FOUND`.
+
+### Changing a start date
+
+`experiences[].startMonth` and `startYear` move an existing position's start,
+always both together. The diff shows it as `MM/YYYY` before and after, read
+from the position's own edit form. Before choosing anything the server reads
+the form again and stops with `STALE_CHANGE_SET` if the date there is no longer
+the "before"; after choosing it checks that both dropdowns hold the new month
+and year, or saves nothing; after saving it reads the form back. The end date
+and the "I currently work here" box are never touched.
 
 ## Setup
 

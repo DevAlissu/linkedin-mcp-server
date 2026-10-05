@@ -69,6 +69,12 @@ class ExperienceChange(BaseModel):
     description: str | None = Field(
         default=None, description="New description, as approved by the user."
     )
+    startMonth: int | None = Field(
+        default=None, ge=1, le=12, description="New start month, with startYear."
+    )
+    startYear: int | None = Field(
+        default=None, description="New start year, with startMonth."
+    )
 
 
 class SkillChanges(BaseModel):
@@ -120,8 +126,10 @@ class ProfileChanges(BaseModel):
     about: str | None = None
     experiences: list[ExperienceChange] = Field(default_factory=list, max_length=20)
     skills: SkillChanges | None = None
+    # One per change set: each add reads the position list before and after
+    # and takes about two minutes, so two in one apply outlast a tool call.
     newExperiences: list[NewExperienceChange] = Field(
-        default_factory=list, max_length=5
+        default_factory=list, max_length=1
     )
 
 
@@ -260,14 +268,15 @@ def register_profile_edit_tools(
         Only send values the user has written or approved. This tool carries
         content; it must not be used to invent jobs, employers, dates,
         qualifications, skills or achievements. Supported: headline, about,
-        title and description of an existing experience, adding a current
-        position (newExperiences; positions are never ended or deleted), and
-        adding and removing skills. Anything else returns UNSUPPORTED_FIELD.
+        title, description and start date of an existing experience, adding
+        a current position (newExperiences, one per change set; positions are
+        never ended or deleted), and adding and removing skills. Anything else
+        returns UNSUPPORTED_FIELD.
 
         Args:
             ctx: FastMCP context
             changes: headline, about, experiences [{experienceId | match, title,
-                description}], newExperiences [{title, company |
+                description, startMonth, startYear}], newExperiences [{title, company |
                 sameCompanyAs, startMonth, startYear, employmentType,
                 locationType, description}], skills {add, remove}
         """
@@ -291,6 +300,8 @@ def register_profile_edit_tools(
                     start_date=e.match.startDate if e.match else None,
                     title=e.title,
                     description=e.description,
+                    start_month=e.startMonth,
+                    start_year=e.startYear,
                 )
                 for e in changes.experiences
             ],

@@ -761,13 +761,13 @@
       "openWorldHint": true,
       "readOnlyHint": true
     },
-    "description": "Creates a previewable profile change set. Does not modify LinkedIn.\n\nReads the current values of the targeted fields, validates every\nrequested value (including LinkedIn's character limits; over-long text\nis refused, never truncated), and stores a change set with before and\nafter values and a fingerprint of the profile it was planned against.\nShow the returned diff to the user. Nothing is applied until the user\napproves and apply_profile_changes is called with confirm=true.\n\nOnly send values the user has written or approved. This tool carries\ncontent; it must not be used to invent jobs, employers, dates,\nqualifications, skills or achievements. Supported: headline, about,\ntitle and description of an existing experience, adding a current\nposition (newExperiences; positions are never ended or deleted), and\nadding and removing skills. Anything else returns UNSUPPORTED_FIELD.",
+    "description": "Creates a previewable profile change set. Does not modify LinkedIn.\n\nReads the current values of the targeted fields, validates every\nrequested value (including LinkedIn's character limits; over-long text\nis refused, never truncated), and stores a change set with before and\nafter values and a fingerprint of the profile it was planned against.\nShow the returned diff to the user. Nothing is applied until the user\napproves and apply_profile_changes is called with confirm=true.\n\nOnly send values the user has written or approved. This tool carries\ncontent; it must not be used to invent jobs, employers, dates,\nqualifications, skills or achievements. Supported: headline, about,\ntitle, description and start date of an existing experience, adding\na current position (newExperiences, one per change set; positions are\nnever ended or deleted), and adding and removing skills. Anything else\nreturns UNSUPPORTED_FIELD.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "changes": {
           "additionalProperties": true,
-          "description": "headline, about, experiences [{experienceId | match, title,\ndescription}], newExperiences [{title, company |\nsameCompanyAs, startMonth, startYear, employmentType,\nlocationType, description}], skills {add, remove}",
+          "description": "headline, about, experiences [{experienceId | match, title,\ndescription, startMonth, startYear}], newExperiences [{title, company |\nsameCompanyAs, startMonth, startYear, employmentType,\nlocationType, description}], skills {add, remove}",
           "properties": {
             "about": {
               "anyOf": [
@@ -856,6 +856,32 @@
                     ],
                     "default": null,
                     "description": "Used only when experienceId is absent; must match exactly one experience."
+                  },
+                  "startMonth": {
+                    "anyOf": [
+                      {
+                        "maximum": 12,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "New start month, with startYear."
+                  },
+                  "startYear": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "New start year, with startMonth."
                   },
                   "title": {
                     "anyOf": [
@@ -977,7 +1003,7 @@
                 ],
                 "type": "object"
               },
-              "maxItems": 5,
+              "maxItems": 1,
               "type": "array"
             },
             "skills": {

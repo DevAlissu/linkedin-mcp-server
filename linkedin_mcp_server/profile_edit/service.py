@@ -38,6 +38,7 @@ from linkedin_mcp_server.profile_edit.errors import (
 )
 from linkedin_mcp_server.profile_edit.model import (
     NewPosition,
+    format_start,
     ExperienceForm,
     ExperienceSummary,
     OwnProfile,
@@ -71,6 +72,9 @@ class ProfileEditorPort(Protocol):
     async def add_skill(self, name: str) -> str: ...
     async def remove_skill(self, skill: Skill) -> None: ...
     async def add_experience(self, position: NewPosition) -> None: ...
+    async def write_experience_start(
+        self, experience_id: str, *, expected: str, month: int, year: int
+    ) -> None: ...
     async def pause(self, seconds: float) -> None: ...
     def set_network_notification(self, notify: bool | None) -> None: ...
     def last_network_notification(self) -> str | None: ...
@@ -84,6 +88,8 @@ class ExperienceEdit:
     start_date: str | None = None
     title: str | None = None
     description: str | None = None
+    start_month: int | None = None
+    start_year: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +125,10 @@ class Proposal:
             self.headline is None
             and self.about is None
             and not any(
-                e.title is not None or e.description is not None
+                e.title is not None
+                or e.description is not None
+                or e.start_month is not None
+                or e.start_year is not None
                 for e in self.experiences
             )
             and not self.skills_add
@@ -268,6 +277,7 @@ class ProfileEditService:
                 **summary.as_dict(),
                 "title": form.title.value,
                 "description": form.description.value,
+                "start": form.start or None,
                 "limits": {
                     "title": form.title.limit("experience_title"),
                     "description": form.description.limit("experience_description"),
@@ -330,6 +340,40 @@ class ProfileEditService:
                             edit.title,
                             form.title.value,
                             form.title.max_length,
+                            exp.id,
+                        )
+                    )
+                if (edit.start_month is None) != (edit.start_year is None):
+                    raise ProfileEditError(
+                        ProfileEditErrorCode.VALIDATION_ERROR,
+                        "A start date needs both startMonth and startYear.",
+                        experienceId=exp.id,
+                    )
+                if edit.start_month is not None and edit.start_year is not None:
+                    this_year = int(self._clock()[:4])
+                    if not 1 <= edit.start_month <= 12 or not (
+                        1950 <= edit.start_year <= this_year
+                    ):
+                        raise ProfileEditError(
+                            ProfileEditErrorCode.VALIDATION_ERROR,
+                            "startMonth must be 1 to 12 and startYear a plausible year.",
+                            experienceId=exp.id,
+                        )
+                    if not form.start:
+                        raise ProfileEditError(
+                            ProfileEditErrorCode.UNSUPPORTED_FIELD,
+                            "This position's form shows no start date to change.",
+                            experienceId=exp.id,
+                        )
+                    texts.append(
+                        TextRequest(
+                            f"experience/{exp.id}/start",
+                            "experience",
+                            "experience_start",
+                            f"{label} start date (MM/YYYY)",
+                            format_start(edit.start_month, edit.start_year),
+                            form.start,
+                            None,
                             exp.id,
                         )
                     )
@@ -775,6 +819,12 @@ class ProfileEditService:
                 expected=change.before or "", value=change.after or ""
             )
             observed = normalize_text((await self._editor.read_about()).value)
+        elif change.key.endswith("/start") and change.target and change.after:
+            month, year = (int(x) for x in change.after.split("/"))
+            await self._editor.write_experience_start(
+                change.target, expected=change.before or "", month=month, year=year
+            )
+            observed = (await self._editor.read_experience(change.target)).start
         elif change.section == "experience" and change.target:
             field_name: ExperienceField = (
                 "title" if change.key.endswith("/title") else "description"
@@ -852,9 +902,14 @@ class ProfileEditService:
                     if e.code is ProfileEditErrorCode.EXPERIENCE_NOT_FOUND:
                         continue  # reported by stale_fields as no longer readable
                     raise
-                current[key] = normalize_text(
-                    (form.title if field_name == "title" else form.description).value
-                )
+                if field_name == "start":
+                    current[key] = form.start
+                else:
+                    current[key] = normalize_text(
+                        (
+                            form.title if field_name == "title" else form.description
+                        ).value
+                    )
             elif key == "skills":
                 current[key] = sorted(
                     skill_key(s.name) for s in await self._editor.list_skills()

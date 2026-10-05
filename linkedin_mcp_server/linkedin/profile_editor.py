@@ -27,6 +27,7 @@ from linkedin_mcp_server.profile_edit.errors import (
 )
 from linkedin_mcp_server.profile_edit.model import (
     NewPosition,
+    format_start,
     ExperienceForm,
     ExperienceSummary,
     Skill,
@@ -418,8 +419,14 @@ class ProfileEditor:
             company = normalize_text(await company_field.input_value()) or None
         except ProfileEditError:
             pass  # display only
+        start_month, start_year = await self._read_start()
         return ExperienceForm(
-            id=experience_id, title=title, description=description, company=company
+            id=experience_id,
+            title=title,
+            description=description,
+            company=company,
+            start_month=start_month,
+            start_year=start_year,
         )
 
     async def list_skills(self) -> list[Skill]:
@@ -548,6 +555,53 @@ class ProfileEditor:
             skill=name,
             offered=offered,
         )
+
+    async def _read_start(self) -> tuple[int | None, int | None]:
+        """The start month (1 to 12) and year shown by the open form, if any."""
+        try:
+            month = await self._field(sel.START_MONTH, self._page.url)
+            year = await self._field(sel.START_YEAR, self._page.url)
+        except ProfileEditError:
+            return None, None
+        index = await month.evaluate("(el) => el.selectedIndex")
+        text = await year.evaluate(
+            "(el) => (el.options[el.selectedIndex] || {}).textContent || ''"
+        )
+        text = text.strip()
+        return (index or None), (int(text) if text.isdigit() else None)
+
+    async def write_experience_start(
+        self, experience_id: str, *, expected: str, month: int, year: int
+    ) -> None:
+        """Change a position's start month and year, checking the "before" first."""
+        url = sel.experience_form_url(await self._vanity_name(), experience_id)
+        await self._open_form((url,), sel.EXPERIENCE_TITLE)
+        current_month, current_year = await self._read_start()
+        current = (
+            format_start(current_month, current_year)
+            if current_month and current_year
+            else ""
+        )
+        if current != expected:
+            raise ProfileEditError(
+                ProfileEditErrorCode.STALE_CHANGE_SET,
+                "The start date on LinkedIn no longer matches the change set; nothing was changed.",
+                field="start",
+                expected=expected,
+                actual=current,
+            )
+        await self._settle_notify_switch("experience start date")
+        month_box = await self._field(sel.START_MONTH, url)
+        year_box = await self._field(sel.START_YEAR, url)
+        await month_box.select_option(index=month)
+        await year_box.select_option(label=str(year))
+        if await self._read_start() != (month, year):
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The start date did not take; nothing was saved.",
+                wanted=format_start(month, year),
+            )
+        await self._save("experience start date", url)
 
     async def add_experience(self, position: NewPosition) -> None:
         """Fill the new-position form exactly as approved, check it, then save.

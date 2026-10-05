@@ -32,6 +32,7 @@ class FakePosition:
     company: str
     date_range: str
     description: str = ""
+    start: str = ""  # "MM/YYYY"
 
 
 @dataclass
@@ -92,8 +93,14 @@ class FakeEditor:
 
     async def read_experience(self, experience_id: str) -> ExperienceForm:
         p = self._position(experience_id)
+        month, _, year = p.start.partition("/")
         return ExperienceForm(
-            p.id, TextField(p.title, 100), TextField(p.description, 2000), p.company
+            p.id,
+            TextField(p.title, 100),
+            TextField(p.description, 2000),
+            p.company,
+            int(month) if month else None,
+            int(year) if year else None,
         )
 
     async def list_skills(self) -> list[Skill]:
@@ -152,6 +159,14 @@ class FakeEditor:
     async def pause(self, seconds: float) -> None:
         self.pauses.append(seconds)
 
+    async def write_experience_start(
+        self, experience_id: str, *, expected: str, month: int, year: int
+    ) -> None:
+        p = self._position(experience_id)
+        self._check("write_experience_start", p.start, expected)
+        p.start = self.mangle.get("start", f"{month:02d}/{year}")
+        self.writes.append(f"experience-{experience_id}-start")
+
     async def add_experience(self, position: NewPosition) -> None:
         self._maybe_fail("add_experience")
         new_id = str(9000 + len(self.positions))
@@ -162,6 +177,7 @@ class FakeEditor:
                 position.company,
                 f"{position.start_month:02d}/{position.start_year} - Present",
                 position.description,
+                f"{position.start_month:02d}/{position.start_year}",
             )
         )
         self.writes.append(f"experience-new-{position.title}")
