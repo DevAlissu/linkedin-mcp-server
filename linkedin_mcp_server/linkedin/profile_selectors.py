@@ -124,6 +124,9 @@ LOCATION_TYPE = FieldSpec("location_type", label_keys=("location_type",))
 START_MONTH = FieldSpec("start_month", label_keys=("start_month",))
 START_YEAR = FieldSpec("start_year", label_keys=("start_year",))
 CURRENT_ROLE_CHECKBOX = 'input[type="checkbox"]:not([role="switch"])'
+# The new-position form's "update profile headline" choice: one option per
+# headline it offers, the current one marked "(current)" in an <em>.
+HEADLINE_CHOICE = '[role="radiogroup"] [role="radio"]'
 NOTIFY_SWITCH = 'input[role="switch"]'
 HEADINGS = "h1, h2, h3"
 

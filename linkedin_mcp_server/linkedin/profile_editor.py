@@ -51,6 +51,14 @@ _VIEW_SETTLE_MS = 2_500
 # separate paragraphs and failed verification after a good save (measured on a
 # pt-BR position description, 4 October 2026). A <br> inside a block stays a
 # line break.
+# The text of one headline choice without its "(current)" marker, an <em>.
+_CHOICE_TEXT_JS = r"""
+(el) => {
+  const copy = el.cloneNode(true);
+  copy.querySelectorAll('em, input, label').forEach((n) => n.remove());
+  return copy.textContent;
+}
+"""
 _RICH_TEXT_JS = r"""
 (el) => {
   const BLOCK = /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE|UL|OL|SECTION|ARTICLE)$/;
@@ -638,11 +646,14 @@ class ProfileEditor:
             )
         await self._save("experience start date", url)
 
-    async def add_experience(self, position: NewPosition) -> None:
+    async def add_experience(
+        self, position: NewPosition, *, keep_headline: str
+    ) -> None:
         """Fill the new-position form exactly as approved, check it, then save.
 
         Every control is read back before Save: a value the form did not take
-        stops the add with nothing saved.
+        stops the add with nothing saved. ``keep_headline`` is the member's
+        current headline, which the form would otherwise replace.
         """
         url = sel.new_position_form_url(await self._vanity_name())
         title = await self._open_form((url,), sel.NEW_POSITION_TITLE)
@@ -689,6 +700,7 @@ class ProfileEditor:
                     typedLength=len(typed),
                     wantedLength=len(position.description),
                 )
+        await self._keep_headline(keep_headline)
         await self._settle_notify_switch("new position")
         await self._save("new position", url)
 
@@ -770,6 +782,46 @@ class ProfileEditor:
             raise ProfileEditError(
                 ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
                 "The current-role box could not be checked; nothing was saved.",
+            )
+
+    async def _keep_headline(self, headline: str) -> None:
+        """Keep the profile headline when the form offers to replace it.
+
+        Once a title and company are in, the new-position form asks whether to
+        update the headline and preselects "<title> at <company>"; saving it as
+        it stood replaced a pt-BR member's own headline (measured 4 October
+        2026). The option kept is the one that reads exactly the current
+        headline, its "(current)" marker aside; a form whose choices do not
+        include it is never saved.
+        """
+        choices = self._dialog().locator(sel.HEADLINE_CHOICE)
+        count = await choices.count()
+        if not count:
+            return
+        wanted = " ".join(headline.split())
+        offered: list[str] = []
+        keep = None
+        for i in range(count):
+            choice = choices.nth(i)
+            text = " ".join((await choice.evaluate(_CHOICE_TEXT_JS)).split())
+            offered.append(text)
+            if text == wanted:
+                keep = choice
+        if keep is None:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "LinkedIn offers to replace the headline and none of its choices is "
+                "the current one; nothing was saved.",
+                headline=headline,
+                offered=offered,
+            )
+        if await keep.get_attribute("aria-checked") != "true":
+            await keep.click(timeout=_FIELD_TIMEOUT_MS)
+        if await keep.get_attribute("aria-checked") != "true":
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The current headline could not be kept; nothing was saved.",
+                headline=headline,
             )
 
     async def remove_skill(self, skill: Skill) -> None:

@@ -193,3 +193,32 @@ class TestApply:
 
         assert out["status"] == "FAILED"
         assert out["results"][0]["error"] == "VERIFICATION_FAILED"
+
+    async def test_adding_a_position_keeps_the_headline(self, store):
+        ed = editor()
+        ed.headline = "Software Engineer | Mobile & Web Developer"
+        s = service(ed, store)
+        cs = await s.propose(Proposal(new_experiences=[fogobio()]))
+
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
+
+        assert out["status"] == "APPLIED"
+        assert ed.headline == "Software Engineer | Mobile & Web Developer"
+
+    async def test_a_headline_changed_by_the_add_is_reported(self, store):
+        ed = editor()
+        ed.headline = "Software Engineer | Mobile & Web Developer"
+        s = service(ed, store)
+        cs = await s.propose(Proposal(new_experiences=[fogobio()]))
+        ed.mangle["headline_after_add"] = "Líder Técnico Frontend da empresa INOVA"
+
+        out = await s.apply(cs["changeSetId"], confirm=True, notify_network=False)
+
+        [result] = out["results"]
+        assert result["error"] == "VERIFICATION_FAILED"
+        assert result["details"]["headlineBefore"] == (
+            "Software Engineer | Mobile & Web Developer"
+        )
+        assert result["details"]["headlineAfter"] == (
+            "Líder Técnico Frontend da empresa INOVA"
+        )

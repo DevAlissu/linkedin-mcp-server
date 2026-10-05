@@ -71,7 +71,9 @@ class ProfileEditorPort(Protocol):
     ) -> None: ...
     async def add_skill(self, name: str) -> str: ...
     async def remove_skill(self, skill: Skill) -> None: ...
-    async def add_experience(self, position: NewPosition) -> None: ...
+    async def add_experience(
+        self, position: NewPosition, *, keep_headline: str
+    ) -> None: ...
     async def write_experience_start(
         self, experience_id: str, *, expected: str, month: int, year: int
     ) -> None: ...
@@ -768,8 +770,9 @@ class ProfileEditService:
     async def _add_position(self, change: FieldChange) -> dict[str, Any]:
         """Add one position and prove it: exactly one new id, read back intact."""
         position = NewPosition.from_dict(json.loads(change.after or "{}"))
+        headline = normalize_text((await self._editor.read_headline()).value)
         before = {e.id for e in await self._editor.list_experiences()}
-        await self._editor.add_experience(position)
+        await self._editor.add_experience(position, keep_headline=headline)
         added = [e for e in await self._editor.list_experiences() if e.id not in before]
         if len(added) != 1:
             raise ProfileEditError(
@@ -796,6 +799,18 @@ class ProfileEditService:
                 experienceId=added[0].id,
                 expected=wanted,
                 observed=observed,
+            )
+        # Adding a role must leave the headline alone; LinkedIn's form offers
+        # to replace it, so prove it did not.
+        after = normalize_text((await self._editor.read_headline()).value)
+        if after != headline:
+            raise ProfileEditError(
+                ProfileEditErrorCode.VERIFICATION_FAILED,
+                "The position was added, but LinkedIn changed the headline.",
+                field=change.key,
+                experienceId=added[0].id,
+                headlineBefore=headline,
+                headlineAfter=after,
             )
         return {
             "field": change.key,

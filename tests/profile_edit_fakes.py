@@ -167,8 +167,15 @@ class FakeEditor:
         p.start = self.mangle.get("start", f"{month:02d}/{year}")
         self.writes.append(f"experience-{experience_id}-start")
 
-    async def add_experience(self, position: NewPosition) -> None:
+    async def add_experience(
+        self, position: NewPosition, *, keep_headline: str
+    ) -> None:
         self._maybe_fail("add_experience")
+        # Like LinkedIn's form: unless the current headline is chosen, the
+        # preselected "<title> at <company>" replaces it.
+        if keep_headline != self.headline:
+            self.headline = f"{position.title} da empresa {position.company}"
+        self.headline = self.mangle.get("headline_after_add", self.headline)
         new_id = str(9000 + len(self.positions))
         self.positions.append(
             FakePosition(

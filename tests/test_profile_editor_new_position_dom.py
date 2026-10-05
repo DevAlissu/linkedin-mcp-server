@@ -30,8 +30,11 @@ pytestmark = [pytest.mark.browser_dom, pytest.mark.xdist_group("browser_runtime"
 BASE = "https://www.linkedin.com"
 INOVA = "INOVA - Polo de Inovação IFAM"
 
+HEADLINE = "Software Engineer | Mobile & Web Developer"
+
 STATE_JS = """
-const S = Object.assign({notify: false, current: true, extraCheckbox: false},
+const S = Object.assign({notify: false, current: true, extraCheckbox: false,
+  headline: 'Software Engineer | Mobile & Web Developer'},
   JSON.parse(localStorage.getItem('S') || '{}'));
 const save = () => localStorage.setItem('S', JSON.stringify(S));
 """
@@ -77,6 +80,14 @@ def new_position_form() -> str:
         f'<label for="sm">Mês de início</label><select id="sm"><option>Month</option>{months}</select>'
         f'<label for="sy">Ano de início*</label><select id="sy"><option>Year</option>{years}</select>'
         '<div role="textbox" contenteditable="true" aria-label="Descrição, máximo de 2.000 caracteres"></div>'
+        # "Atualizar título do perfil", as measured: the new title preselected,
+        # the current headline second with its "(atual)" marker in an <em>.
+        '<fieldset role="radiogroup">'
+        '<div role="radio" tabindex="0" aria-checked="true" id="hnew"><div><input type="radio" checked name="h">'
+        "<label></label></div><p>Novo cargo da empresa</p></div>"
+        '<div role="radio" tabindex="0" aria-checked="false" id="hcur"><div><input type="radio" name="h">'
+        '<label></label></div><p><span id="hl"></span><span> </span><em>(atual)</em></p></div>'
+        "</fieldset>"
         '<button type="button" id="save">Salvar</button></dialog>',
         f"""
         const COMPANIES = {json.dumps(COMPANIES, ensure_ascii=False)};
@@ -92,10 +103,15 @@ def new_position_form() -> str:
             box.value = o.textContent; document.getElementById('lb').innerHTML = '';
           }});
         }});
+        document.getElementById('hl').textContent = S.headline;
+        for (const r of document.querySelectorAll('[role=radio]')) r.addEventListener('click', () => {{
+          for (const o of document.querySelectorAll('[role=radio]')) o.setAttribute('aria-checked', String(o === r));
+        }});
         document.getElementById('d').show();
         document.getElementById('save').addEventListener('click', () => {{
           const sel = (id) => document.getElementById(id);
           S.saved = {{
+            headline: sel('hcur').getAttribute('aria-checked') === 'true' ? 'kept' : 'replaced',
             title: sel('t').value, company: sel('c').value,
             locationType: sel('lt2').selectedOptions[0].textContent,
             employmentType: sel('et').selectedOptions[0].textContent,
@@ -200,12 +216,13 @@ async def test_every_field_is_filled_as_approved_and_saved(page: Page) -> None:
     await set_state(page)
     ed = editor(page)
 
-    await ed.add_experience(POSITION)
+    await ed.add_experience(POSITION, keep_headline=HEADLINE)
 
     stored = await saved_form(page)
     # An editor stores a paragraph break as an empty paragraph (see normalize_text).
     stored["description"] = normalize_text(stored["description"])
     assert stored == {
+        "headline": "kept",
         "title": "Líder Técnico Frontend",
         "company": INOVA,
         "locationType": "Remoto",
@@ -222,7 +239,7 @@ async def test_every_field_is_filled_as_approved_and_saved(page: Page) -> None:
 async def test_a_notify_switch_left_on_is_turned_off_before_saving(page: Page) -> None:
     await set_state(page, notify=True)
 
-    await editor(page, notify=False).add_experience(POSITION)
+    await editor(page, notify=False).add_experience(POSITION, keep_headline=HEADLINE)
 
     assert (await saved_form(page))["notify"] is False
 
@@ -230,7 +247,7 @@ async def test_a_notify_switch_left_on_is_turned_off_before_saving(page: Page) -
 async def test_the_current_role_box_is_checked_when_it_was_not(page: Page) -> None:
     await set_state(page, current=False)
 
-    await editor(page).add_experience(POSITION)
+    await editor(page).add_experience(POSITION, keep_headline=HEADLINE)
 
     assert (await saved_form(page))["current"] is True
 
@@ -241,7 +258,8 @@ async def test_a_company_without_an_exact_suggestion_saves_nothing(page: Page) -
         await editor(page).add_experience(
             NewPosition(
                 title="Dev", company="INOVA Polo", start_month=1, start_year=2026
-            )
+            ),
+            keep_headline=HEADLINE,
         )
     assert e.value.code is ProfileEditErrorCode.VALIDATION_ERROR
     assert await saved(page) is None
@@ -250,6 +268,25 @@ async def test_a_company_without_an_exact_suggestion_saves_nothing(page: Page) -
 async def test_an_unexpected_second_checkbox_stops_before_saving(page: Page) -> None:
     await set_state(page, extraCheckbox=True)
     with pytest.raises(ProfileEditError) as e:
-        await editor(page).add_experience(POSITION)
+        await editor(page).add_experience(POSITION, keep_headline=HEADLINE)
     assert e.value.code is ProfileEditErrorCode.SELECTOR_NOT_FOUND
+    assert await saved(page) is None
+
+
+async def test_the_current_headline_is_kept_over_the_preselected_one(
+    page: Page,
+) -> None:
+    await set_state(page)
+
+    await editor(page).add_experience(POSITION, keep_headline=HEADLINE)
+
+    assert (await saved_form(page))["headline"] == "kept"
+
+
+async def test_choices_without_the_current_headline_save_nothing(page: Page) -> None:
+    await set_state(page, headline="Another headline")
+    with pytest.raises(ProfileEditError) as e:
+        await editor(page).add_experience(POSITION, keep_headline=HEADLINE)
+    assert e.value.code is ProfileEditErrorCode.LINKEDIN_SAVE_FAILED
+    assert e.value.details["offered"] == ["Novo cargo da empresa", "Another headline"]
     assert await saved(page) is None

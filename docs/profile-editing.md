@@ -114,8 +114,11 @@ must appear among LinkedIn's own suggestions with exactly that name, or nothing
 is saved. The form's "I currently work here" box stays checked, every field is
 read back before Save, and the result counts as verified only when exactly one
 new position appears and reads back with the approved title, company and
-description. The proposal is planned against the list of your positions: if one
-is added or removed by hand before you apply, it goes stale. Measured on a
+description. Your headline is kept: the form offers to replace it with "<title>
+at <company>" and preselects that, so the server picks the choice that reads
+exactly your current headline, saves nothing if it is not offered, and reads the
+headline again afterwards. The proposal is planned against the list of your
+positions: if one is added or removed by hand before you apply, it goes stale. Measured on a
 pt-BR account; on a language without measured labels the add stops at
 `SELECTOR_NOT_FOUND`.
 
