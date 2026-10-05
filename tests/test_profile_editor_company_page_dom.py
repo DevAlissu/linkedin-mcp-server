@@ -209,7 +209,11 @@ PUBLIC_PAGE = page_html(
     '<h1 id="h"></h1><p id="t"></p>',
     """
     const slug = location.pathname.split('/')[2];
-    if (S.created && S.created.address === slug) {
+    // Like LinkedIn: an admin opening the public address lands on the admin
+    // dashboard unless the member view is asked for.
+    if (S.created && !location.search.includes('viewAsMember=true'))
+      location.replace('/company/123/admin/dashboard/');
+    else if (S.created && S.created.address === slug) {
       document.getElementById('h').textContent = S.created.name;
       document.getElementById('t').textContent = S.created.tagline;
     } else document.body.innerHTML = '<p>Página não encontrada</p>';

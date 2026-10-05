@@ -880,15 +880,22 @@ class ProfileEditor:
         return self._page.url
 
     async def read_company_page(self, public_url: str) -> dict[str, str]:
-        """The page at linkedin.com/company/<public_url>/: its URL, name and text."""
-        await self._goto(sel.company_page_url(public_url))
+        """The page at linkedin.com/company/<public_url>/ as a member sees it.
+
+        Opened by one of its admins, the public address redirects to the admin
+        dashboard, which shows the name but not the tagline; with
+        ``viewAsMember=true`` it shows the member view (measured on a page just
+        created, 4 October 2026). Returns the public URL, name and page text.
+        """
+        url = sel.company_page_url(public_url)
+        await self._goto(f"{url}?viewAsMember=true")
         heading = self._page.locator("h1").first
         try:
             await heading.wait_for(state="visible", timeout=_DIALOG_TIMEOUT_MS)
         except Exception:
-            return {"url": self._page.url, "name": "", "text": ""}
+            return {"url": url, "name": "", "text": ""}
         return {
-            "url": self._page.url,
+            "url": url,
             "name": (await heading.inner_text()).strip(),
             "text": await self._page.locator("body").inner_text(),
         }
