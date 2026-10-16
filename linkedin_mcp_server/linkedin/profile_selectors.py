@@ -127,15 +127,16 @@ END_MONTH = FieldSpec("end_month", label_keys=("end_month",))
 END_YEAR = FieldSpec("end_year", label_keys=("end_year",))
 CURRENT_ROLE_CHECKBOX = 'input[type="checkbox"]:not([role="switch"])'
 # Every plain checkbox of an edit form, with the text it reads and whether a
-# label names it. Skills carry labels; "I currently work here" and the "end
-# current position as of now - <title>" boxes do not (measured on a pt-BR
-# account, 16 October 2026). The text is the nearest ancestor's, as shown.
+# label names it. Skills carry labels with their names; "I currently work
+# here" and the "end current position as of now - <title>" boxes have an
+# empty <label> and the text beside it (measured on a pt-BR account,
+# 16 October 2026). The text is the nearest ancestor's, as shown.
 ROLE_BOXES_JS = r"""
 (d) => [...d.querySelectorAll('input[type="checkbox"]:not([role="switch"])')].map((el, i) => {
   let p = el.parentElement;
   for (let k = 0; k < 4 && p && !(p.innerText || '').trim(); k++) p = p.parentElement;
-  const labelled = !!((el.labels && el.labels.length) || el.getAttribute('aria-label')
-    || el.getAttribute('aria-labelledby'));
+  const labelled = [...(el.labels || [])].some((l) => (l.innerText || '').trim())
+    || !!(el.getAttribute('aria-label') || '').trim();
   return {i, labelled, checked: el.checked,
           text: p ? p.innerText.trim().replace(/\s+/g, ' ') : ''};
 })

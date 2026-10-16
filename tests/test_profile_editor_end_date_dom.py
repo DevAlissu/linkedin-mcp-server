@@ -1,8 +1,8 @@
 """Browser-DOM tests for ending a position, or making it current again.
 
 The synthetic form carries what was measured on a pt-BR account on
-16 October 2026: a visually hidden, unlabelled "Trabalho atualmente neste
-cargo" checkbox; while it is checked, one unlabelled "Encerrar cargo atual a
+16 October 2026: a visually hidden "Trabalho atualmente neste cargo"
+checkbox whose <label> is empty, the text sitting beside it; while it is checked, one unlabelled "Encerrar cargo atual a
 partir de agora - <title>" box per other role held now; while it is not, the
 "Mês de término" and "Ano de término*" dropdowns; and labelled skill
 checkboxes, which are none of these.
@@ -62,7 +62,8 @@ def edit_form() -> str:
     return page_html(
         '<dialog id="d"><h2>Editar cargo</h2><input type="checkbox" role="switch" id="notify">'
         '<span id="lt">Cargo*</span><input id="t" aria-labelledby="lt" value="Líder Técnico Frontend">'
-        f'<div><div><input type="checkbox" id="cur" {HIDDEN}></div><span>Trabalho atualmente neste cargo</span></div>'
+        f'<div><div><input type="checkbox" id="cur" {HIDDEN}><label for="cur"></label></div>'
+        "<span>Trabalho atualmente neste cargo</span></div>"
         '<div id="others"></div>'
         f'<label for="sm">Mês de início</label><select id="sm"><option>Month</option>{months}</select>'
         f'<label for="sy">Ano de início*</label><select id="sy"><option>Year</option>{years}</select>'
@@ -81,7 +82,7 @@ def edit_form() -> str:
         const render = () => {{
           endbox.style.display = cur.checked ? 'none' : '';
           others.innerHTML = cur.checked ? S.others.map((t) =>
-            `<div><div><input type="checkbox" class="end-other" {HIDDEN}></div>`
+            `<div><div><label><input type="checkbox" class="end-other" {HIDDEN}></label></div>`
             + `<span>Encerrar cargo atual a partir de agora - ${{t}}</span></div>`).join('') : '';
           if (cur.checked && S.otherChecked) others.querySelectorAll('input').forEach((b) => b.checked = true);
         }};
