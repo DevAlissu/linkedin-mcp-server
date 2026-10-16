@@ -42,6 +42,8 @@ MONTHS = [
     "Dezembro",
 ]
 HIDDEN = 'style="position:absolute;width:0;height:0;opacity:0;margin:0"'
+# The 24 by 24 box LinkedIn draws in place of the hidden input (measured).
+LABEL = 'style="display:inline-block;width:24px;height:24px"'
 
 
 def page_html(body: str, script: str = "") -> str:
@@ -62,7 +64,7 @@ def edit_form() -> str:
     return page_html(
         '<dialog id="d"><h2>Editar cargo</h2><input type="checkbox" role="switch" id="notify">'
         '<span id="lt">Cargo*</span><input id="t" aria-labelledby="lt" value="Líder Técnico Frontend">'
-        f'<div><div><input type="checkbox" id="cur" {HIDDEN}><label for="cur"></label></div>'
+        f'<div><div><input type="checkbox" id="cur" {HIDDEN}><label for="cur" {LABEL}></label></div>'
         "<span>Trabalho atualmente neste cargo</span></div>"
         '<div id="others"></div>'
         f'<label for="sm">Mês de início</label><select id="sm"><option>Month</option>{months}</select>'
@@ -79,7 +81,12 @@ def edit_form() -> str:
         const others = document.getElementById('others');
         const endbox = document.getElementById('endbox');
         const em = document.getElementById('em'), ey = document.getElementById('ey');
+        // Like LinkedIn: a script click on the hidden box changes what the
+        // form shows, but React puts the box back, so it still reads checked.
+        let scripted = false;
+        cur.addEventListener('click', (e) => {{ if (!e.isTrusted) scripted = true; }});
         const render = () => {{
+          if (scripted) {{ scripted = false; endbox.style.display = ''; cur.checked = !cur.checked; return; }}
           endbox.style.display = cur.checked ? 'none' : '';
           others.innerHTML = cur.checked ? S.others.map((t) =>
             `<div><div><label><input type="checkbox" class="end-other" {HIDDEN}></label></div>`

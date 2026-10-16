@@ -318,13 +318,9 @@ class ProfileEditor:
                 continue
             if await switch.is_checked() != self._notify:
                 try:
-                    await switch.set_checked(self._notify, timeout=_FIELD_TIMEOUT_MS)
-                except Exception:
-                    # A visually hidden switch: toggle it the way the page does.
-                    await switch.evaluate(
-                        "(el, on) => { if (el.checked !== on) el.click(); }",
-                        self._notify,
-                    )
+                    await self._set_checked(switch, self._notify, f"{field} notify")
+                except ProfileEditError:
+                    pass  # reported just below, with the user's decision
             if await switch.is_checked() != self._notify:
                 raise ProfileEditError(
                     ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
@@ -736,14 +732,31 @@ class ProfileEditor:
         return False, (index or None), (int(text) if text.isdigit() else None)
 
     async def _set_checked(self, box: Locator, on: bool, what: str) -> None:
-        if await box.is_checked() != on:
-            try:
+        """Tick or untick a box the way a person does: through its label.
+
+        LinkedIn hides these boxes and draws their label instead. A script
+        click on the hidden "I currently work here" box made the form show its
+        end-date fields while the box still read as checked, a state a save
+        would store as something nobody chose (measured 16 October 2026); so
+        no box is ever clicked by script. Without a label, a direct check.
+        """
+        if await box.is_checked() == on:
+            return
+        box_id = await box.get_attribute("id")
+        label = self._dialog().locator(f'label[for="{box_id}"]') if box_id else None
+        try:
+            if label is not None and await label.count() == 1:
+                await label.click(timeout=_FIELD_TIMEOUT_MS)
+            else:
                 await box.set_checked(on, timeout=_FIELD_TIMEOUT_MS)
-            except Exception:
-                # A visually hidden box: toggle it the way the page does.
-                await box.evaluate(
-                    "(el, on) => { if (el.checked !== on) el.click(); }", on
-                )
+        except ProfileEditError:
+            raise
+        except Exception:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                f"The {what} box could not be reached; nothing was saved.",
+            ) from None
+        await self._page.wait_for_timeout(_SETTLE_MS)
         if await box.is_checked() != on:
             raise ProfileEditError(
                 ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
@@ -916,17 +929,7 @@ class ProfileEditor:
                 url,
                 f"expected one plain checkbox, found {count}",
             )
-        box = boxes.first
-        if not await box.is_checked():
-            try:
-                await box.set_checked(True, timeout=_FIELD_TIMEOUT_MS)
-            except Exception:
-                await box.evaluate("(el) => { if (!el.checked) el.click(); }")
-        if not await box.is_checked():
-            raise ProfileEditError(
-                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
-                "The current-role box could not be checked; nothing was saved.",
-            )
+        await self._set_checked(boxes.first, True, "current-role")
 
     # ── company page ────────────────────────────────────────────────────────
     async def create_company_page(self, page: NewCompanyPage) -> str:
