@@ -36,9 +36,10 @@ This guide covers the profile-editing tools added to
 | Experience: start month and year | ✓ | ✓ |
 | Skills | ✓ (all of them, with order) | add, remove |
 | Name, location | ✓ | — |
-| Company, end date, employment type, education, featured | partly | — returns `UNSUPPORTED_FIELD` |
+| Company, employment type, education, featured | partly | — returns `UNSUPPORTED_FIELD` |
 | Adding a current position (`newExperiences`) | — | ✓ title, company, start month and year, employment and location type, description |
-| Ending or deleting positions | — | — never |
+| Experience: end date, or back to current | ✓ | ✓ |
+| Deleting positions | — | — never |
 | Creating a company page (`newCompanyPage`) | — | ✓ name, address, website, industry, size, type, logo, tagline |
 | Reordering skills | — | — |
 
@@ -132,6 +133,23 @@ the form again and stops with `STALE_CHANGE_SET` if the date there is no longer
 the "before"; after choosing it checks that both dropdowns hold the new month
 and year, or saves nothing; after saving it reads the form back. The end date
 and the "I currently work here" box are never touched.
+
+### Ending a position, or making it current again
+
+`experiences[].endMonth` and `endYear` end a position at that month, always both
+together; `currentRole: true` makes an ended position a role held now again.
+The diff shows the end as `present` or `MM/YYYY`, before and after, read from
+the position's edit form. An end may not be after this month nor before the
+start. As with the start date, the server reads the form again before changing
+anything, checks the new state before saving and reads the form back after.
+
+A form for a role held now also offers to end each other role held now ("end
+current position as of now - <title>"). No edit of a position is saved while
+one of those is checked, and after every apply that touched experience the
+whole experience list is read again: a position whose title or dates changed
+without being part of the change set is reported in `unexpectedChanges`, and
+the apply does not count as fully applied. That check exists because a save
+once ended another position on a pt-BR account; nothing is changed back.
 
 ### Creating a company page
 

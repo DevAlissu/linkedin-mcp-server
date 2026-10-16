@@ -7,6 +7,7 @@ saved. Failures are injected per operation to model LinkedIn's bad days.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -34,6 +35,7 @@ class FakePosition:
     date_range: str
     description: str = ""
     start: str = ""  # "MM/YYYY"
+    end: str = "present"  # "present" for a role held now, else "MM/YYYY"
 
 
 @dataclass
@@ -54,6 +56,8 @@ class FakeEditor:
     pauses: list[float] = field(default_factory=list)
     # The user's answer about notifying the network, as the service passed it.
     notify: bool | None = None
+    # Called after every write, to model LinkedIn changing more than was asked.
+    after_write: Callable[[FakeEditor], None] | None = None
     # Company pages created, by public address, as the page would show them.
     company_pages: dict[str, NewCompanyPage] = field(default_factory=dict)
 
@@ -97,6 +101,7 @@ class FakeEditor:
     async def read_experience(self, experience_id: str) -> ExperienceForm:
         p = self._position(experience_id)
         month, _, year = p.start.partition("/")
+        end_month, _, end_year = ("" if p.end == "present" else p.end).partition("/")
         return ExperienceForm(
             p.id,
             TextField(p.title, 100),
@@ -104,6 +109,9 @@ class FakeEditor:
             p.company,
             int(month) if month else None,
             int(year) if year else None,
+            current=p.end == "present",
+            end_month=int(end_month) if end_month else None,
+            end_year=int(end_year) if end_year else None,
         )
 
     async def list_skills(self) -> list[Skill]:
@@ -142,6 +150,18 @@ class FakeEditor:
         self._check(f"write_experience_{field}", getattr(p, field), expected)
         setattr(p, field, value)
         self.writes.append(f"experience/{experience_id}/{field}")
+        if self.after_write is not None:
+            self.after_write(self)
+
+    async def write_experience_end(
+        self, experience_id: str, *, expected: str, end: str
+    ) -> None:
+        p = self._position(experience_id)
+        self._check("write_experience_end", p.end, expected)
+        p.end = self.mangle.get("end", end)
+        self.writes.append(f"experience-{experience_id}-end")
+        if self.after_write is not None:
+            self.after_write(self)
 
     async def add_skill(self, name: str) -> str:
         self._maybe_fail("add_skill")

@@ -76,6 +76,19 @@ class ExperienceChange(BaseModel):
     startYear: int | None = Field(
         default=None, description="New start year, with startMonth."
     )
+    endMonth: int | None = Field(
+        default=None,
+        ge=1,
+        le=12,
+        description="Ends the position at this month, with endYear.",
+    )
+    endYear: int | None = Field(
+        default=None, description="Ends the position in this year, with endMonth."
+    )
+    currentRole: Literal[True] | None = Field(
+        default=None,
+        description="true makes an ended position a role held now again.",
+    )
 
 
 class SkillChanges(BaseModel):
@@ -318,11 +331,12 @@ def register_profile_edit_tools(
         Only send values the user has written or approved. This tool carries
         content; it must not be used to invent jobs, employers, dates,
         qualifications, skills or achievements. Supported: headline, about,
-        title, description and start date of an existing experience, adding
-        a current position (newExperiences, one per change set; positions are
-        never ended or deleted), adding and removing skills, and creating a
-        LinkedIn Page for an organization the user represents
-        (newCompanyPage). Anything else returns UNSUPPORTED_FIELD.
+        title, description, start date and end date of an existing
+        experience (endMonth and endYear end it, currentRole=true makes it a
+        role held now again), adding a current position (newExperiences, one
+        per change set; positions are never deleted), adding and removing
+        skills, and creating a LinkedIn Page for an organization the user
+        represents (newCompanyPage). Anything else returns UNSUPPORTED_FIELD.
 
         A company page is public and cannot be undone from here. Before
         proposing one, ask the user whether they officially represent the
@@ -332,7 +346,8 @@ def register_profile_edit_tools(
         Args:
             ctx: FastMCP context
             changes: headline, about, experiences [{experienceId | match, title,
-                description, startMonth, startYear}], newExperiences [{title, company |
+                description, startMonth, startYear, endMonth, endYear,
+                currentRole}], newExperiences [{title, company |
                 sameCompanyAs, startMonth, startYear, employmentType,
                 locationType, description}], skills {add, remove},
                 newCompanyPage {name, publicUrl, industry, size,
@@ -361,6 +376,9 @@ def register_profile_edit_tools(
                     description=e.description,
                     start_month=e.startMonth,
                     start_year=e.startYear,
+                    end_month=e.endMonth,
+                    end_year=e.endYear,
+                    current=e.currentRole,
                 )
                 for e in changes.experiences
             ],

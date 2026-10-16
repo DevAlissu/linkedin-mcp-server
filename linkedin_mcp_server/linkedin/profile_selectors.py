@@ -123,7 +123,24 @@ EMPLOYMENT_TYPE = FieldSpec("employment_type", label_keys=("employment_type",))
 LOCATION_TYPE = FieldSpec("location_type", label_keys=("location_type",))
 START_MONTH = FieldSpec("start_month", label_keys=("start_month",))
 START_YEAR = FieldSpec("start_year", label_keys=("start_year",))
+END_MONTH = FieldSpec("end_month", label_keys=("end_month",))
+END_YEAR = FieldSpec("end_year", label_keys=("end_year",))
 CURRENT_ROLE_CHECKBOX = 'input[type="checkbox"]:not([role="switch"])'
+# Every plain checkbox of an edit form, with the text it reads and whether a
+# label names it. Skills carry labels; "I currently work here" and the "end
+# current position as of now - <title>" boxes do not (measured on a pt-BR
+# account, 16 October 2026). The text is the nearest ancestor's, as shown.
+ROLE_BOXES_JS = r"""
+(d) => [...d.querySelectorAll('input[type="checkbox"]:not([role="switch"])')].map((el, i) => {
+  let p = el.parentElement;
+  for (let k = 0; k < 4 && p && !(p.innerText || '').trim(); k++) p = p.parentElement;
+  const labelled = !!((el.labels && el.labels.length) || el.getAttribute('aria-label')
+    || el.getAttribute('aria-labelledby'));
+  return {i, labelled, checked: el.checked,
+          text: p ? p.innerText.trim().replace(/\s+/g, ' ') : ''};
+})
+"""
+
 # The new-position form's "update profile headline" choice: one option per
 # headline it offers, the current one marked "(current)" in an <em>.
 HEADLINE_CHOICE = '[role="radiogroup"] [role="radio"]'
@@ -189,6 +206,10 @@ LABELS: dict[str, dict[str, tuple[str, ...]]] = {
         "location_type": ("Tipo de localidade",),
         "start_month": ("Mês de início",),
         "start_year": ("Ano de início*", "Ano de início"),
+        # The end date shows only once "I currently work here" is unchecked.
+        "end_month": ("Mês de término",),
+        "end_year": ("Ano de término*", "Ano de término"),
+        "current_role": ("Trabalho atualmente neste cargo",),
         # The company-page flow (linkedin.com/company/setup/new/): the
         # page-kind chooser's first button, whose accessible name continues
         # with a subtitle, and the form's submit button.

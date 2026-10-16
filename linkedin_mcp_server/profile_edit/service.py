@@ -38,6 +38,7 @@ from linkedin_mcp_server.profile_edit.errors import (
     ProfileEditErrorCode,
 )
 from linkedin_mcp_server.profile_edit.model import (
+    PRESENT,
     NewCompanyPage,
     NewPosition,
     format_start,
@@ -79,6 +80,9 @@ class ProfileEditorPort(Protocol):
     async def write_experience_start(
         self, experience_id: str, *, expected: str, month: int, year: int
     ) -> None: ...
+    async def write_experience_end(
+        self, experience_id: str, *, expected: str, end: str
+    ) -> None: ...
     async def create_company_page(self, page: NewCompanyPage) -> str: ...
     async def read_company_page(self, public_url: str) -> dict[str, str]: ...
     async def pause(self, seconds: float) -> None: ...
@@ -96,6 +100,10 @@ class ExperienceEdit:
     description: str | None = None
     start_month: int | None = None
     start_year: int | None = None
+    end_month: int | None = None
+    end_year: int | None = None
+    # True makes an ended position a role held now again.
+    current: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +144,9 @@ class Proposal:
                 or e.description is not None
                 or e.start_month is not None
                 or e.start_year is not None
+                or e.end_month is not None
+                or e.end_year is not None
+                or e.current is not None
                 for e in self.experiences
             )
             and not self.skills_add
@@ -143,6 +154,40 @@ class Proposal:
             and not self.new_experiences
             and self.new_company_page is None
         )
+
+
+def _unexpected_changes(
+    cs: ChangeSet,
+    before: dict[str, tuple[str, str]],
+    after: dict[str, tuple[str, str]],
+) -> list[dict[str, Any]]:
+    """Positions whose title or dates changed although no change asked for it."""
+    titled = {c.target for c in cs.changes if c.key.endswith("/title")}
+    dated = {c.target for c in cs.changes if c.key.endswith(("/start", "/end"))}
+    adding = any(c.kind == "experience_new" for c in cs.changes)
+    found: list[dict[str, Any]] = []
+    for pid in sorted(before.keys() | after.keys()):
+        if pid not in after:
+            found.append(
+                {"experienceId": pid, "change": "removed", "before": before[pid]}
+            )
+        elif pid not in before:
+            if not adding:
+                found.append(
+                    {"experienceId": pid, "change": "added", "after": after[pid]}
+                )
+        else:
+            for i, what, targeted in ((0, "title", titled), (1, "dates", dated)):
+                if before[pid][i] != after[pid][i] and pid not in targeted:
+                    found.append(
+                        {
+                            "experienceId": pid,
+                            "change": what,
+                            "before": before[pid][i],
+                            "after": after[pid][i],
+                        }
+                    )
+    return found
 
 
 def _utc_now() -> str:
@@ -385,6 +430,20 @@ class ProfileEditService:
                             exp.id,
                         )
                     )
+                end = self._requested_end(edit, form, exp.id)
+                if end is not None:
+                    texts.append(
+                        TextRequest(
+                            f"experience/{exp.id}/end",
+                            "experience",
+                            "experience_end",
+                            f"{label} end date (MM/YYYY, or {PRESENT})",
+                            end,
+                            form.end,
+                            None,
+                            exp.id,
+                        )
+                    )
                 if edit.description is not None:
                     texts.append(
                         TextRequest(
@@ -590,6 +649,15 @@ class ProfileEditService:
         cs.transition(ChangeSetStatus.APPLYING, self._clock())
         self._store.save(cs)
 
+        # Every position as listed before anything is written, so a change
+        # LinkedIn makes beyond the approved ones is caught afterwards: one
+        # position's save once also ended another role held now (seen
+        # 16 October 2026 on a pt-BR account).
+        positions_before = (
+            await self._positions()
+            if any(c.section == "experience" for c in cs.changes)
+            else None
+        )
         results: list[dict[str, Any]] = []
         stop: ProfileEditError | None = None
         in_flight: FieldChange | None = None
@@ -655,11 +723,16 @@ class ProfileEditService:
             raise
 
         done = [r for r in results if r["verified"]]
-        if stop is None:
+        unexpected = (
+            _unexpected_changes(cs, positions_before, await self._positions())
+            if positions_before is not None
+            else []
+        )
+        if stop is None and not unexpected:
             final = ChangeSetStatus.APPLIED
         elif done:
             final = ChangeSetStatus.PARTIAL_FAILURE
-        elif stop.code is ProfileEditErrorCode.STALE_CHANGE_SET:
+        elif stop is not None and stop.code is ProfileEditErrorCode.STALE_CHANGE_SET:
             final = ChangeSetStatus.STALE
         else:
             final = ChangeSetStatus.FAILED
@@ -679,11 +752,17 @@ class ProfileEditService:
             "results": results,
             "snapshotPath": cs.snapshot_path,
         }
+        if unexpected:
+            out["unexpectedChanges"] = unexpected
+            out["message"] = (
+                "LinkedIn also changed positions that were not part of this change "
+                "set. Check them on linkedin.com; nothing was changed back."
+            )
         if final is not ChangeSetStatus.APPLIED:
             out["error"] = str(
                 ProfileEditErrorCode.PARTIAL_FAILURE
                 if done
-                else (stop.code if stop else ProfileEditErrorCode.LINKEDIN_SAVE_FAILED)
+                else (stop.code if stop else ProfileEditErrorCode.VERIFICATION_FAILED)
             )
             out["recovery"] = (
                 "Fields marked UPDATED/ADDED/REMOVED are live and verified. Nothing was rolled back. "
@@ -836,6 +915,74 @@ class ProfileEditService:
             "experienceId": added[0].id,
         }
 
+    def _requested_end(
+        self, edit: ExperienceEdit, form: ExperienceForm, experience_id: str
+    ) -> str | None:
+        """The end a request asks for: PRESENT, "MM/YYYY", or None for no change.
+
+        An end must be a real month, not after this one, and not before the
+        start (the requested start when that changes too).
+        """
+        if edit.end_month is None and edit.end_year is None and edit.current is None:
+            return None
+
+        def refuse(reason: str) -> ProfileEditError:
+            return ProfileEditError(
+                ProfileEditErrorCode.VALIDATION_ERROR,
+                reason,
+                experienceId=experience_id,
+            )
+
+        if not form.end:
+            raise ProfileEditError(
+                ProfileEditErrorCode.UNSUPPORTED_FIELD,
+                "This position's form shows no current-role box to change.",
+                experienceId=experience_id,
+            )
+        if edit.current is not None:
+            if (
+                edit.current is not True
+                or edit.end_month is not None
+                or edit.end_year is not None
+            ):
+                raise refuse(
+                    "Use currentRole=true alone to make a position current, or "
+                    "endMonth with endYear to end it."
+                )
+            return PRESENT
+        if edit.end_month is None or edit.end_year is None:
+            raise refuse("An end date needs both endMonth and endYear.")
+        now = self._clock()
+        this = (int(now[:4]), int(now[5:7]))
+        if (
+            not 1 <= edit.end_month <= 12
+            or not (1950, 1) <= (edit.end_year, edit.end_month) <= this
+        ):
+            raise refuse(
+                "endMonth must be 1 to 12 and the end date not after this month."
+            )
+        if edit.start_month is not None and edit.start_year is not None:
+            start = (edit.start_year, edit.start_month)
+        else:
+            start = (form.start_year or 0, form.start_month or 0)
+        if (edit.end_year, edit.end_month) < start:
+            raise refuse("The end date is before the position's start date.")
+        return format_start(edit.end_month, edit.end_year)
+
+    async def _positions(self) -> dict[str, tuple[str, str]]:
+        """Every position's title and dates, as the experience list shows them.
+
+        The duration after the dates ("· 1 yr 1 mo") is left out: it moves
+        with the calendar, not with an edit.
+        """
+        return {
+            e.id: (
+                normalize_text(e.title),
+                normalize_text((e.date_range or "").split("·")[0]),
+            )
+            for e in await self._editor.list_experiences()
+        }
+
     async def _create_company_page(self, change: FieldChange) -> dict[str, Any]:
         """Create the page and prove it: its public address shows the approved name."""
         page = NewCompanyPage.from_dict(json.loads(change.after or "{}"))
@@ -882,6 +1029,11 @@ class ProfileEditService:
                 expected=change.before or "", value=change.after or ""
             )
             observed = normalize_text((await self._editor.read_about()).value)
+        elif change.key.endswith("/end") and change.target and change.after:
+            await self._editor.write_experience_end(
+                change.target, expected=change.before or "", end=change.after
+            )
+            observed = (await self._editor.read_experience(change.target)).end
         elif change.key.endswith("/start") and change.target and change.after:
             month, year = (int(x) for x in change.after.split("/"))
             await self._editor.write_experience_start(
@@ -967,6 +1119,8 @@ class ProfileEditService:
                     raise
                 if field_name == "start":
                     current[key] = form.start
+                elif field_name == "end":
+                    current[key] = form.end
                 else:
                     current[key] = normalize_text(
                         (
@@ -989,7 +1143,7 @@ class ProfileEditService:
         for c in cs.changes:
             # A start date is always "MM/YYYY", seven of seven characters: its
             # limit is a format, not a budget the user could run out of.
-            if c.kind == "experience_start":
+            if c.kind in {"experience_start", "experience_end"}:
                 continue
             if c.after and c.max_length and len(c.after) > 0.9 * c.max_length:
                 warnings.append(

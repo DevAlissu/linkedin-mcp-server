@@ -597,7 +597,7 @@
           "properties": {
             "changes": {
               "additionalProperties": true,
-              "description": "headline, about, experiences [{experienceId | match, title,\ndescription, startMonth, startYear}], newExperiences [{title, company |\nsameCompanyAs, startMonth, startYear, employmentType,\nlocationType, description}], skills {add, remove},\nnewCompanyPage {name, publicUrl, industry, size,\norganizationType, website, tagline, logoPath,\nauthorizedRepresentative}",
+              "description": "headline, about, experiences [{experienceId | match, title,\ndescription, startMonth, startYear, endMonth, endYear,\ncurrentRole}], newExperiences [{title, company |\nsameCompanyAs, startMonth, startYear, employmentType,\nlocationType, description}], skills {add, remove},\nnewCompanyPage {name, publicUrl, industry, size,\norganizationType, website, tagline, logoPath,\nauthorizedRepresentative}",
               "properties": {
                 "about": {
                   "anyOf": [
@@ -614,6 +614,19 @@
                   "items": {
                     "additionalProperties": true,
                     "properties": {
+                      "currentRole": {
+                        "anyOf": [
+                          {
+                            "const": true,
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "true makes an ended position a role held now again."
+                      },
                       "description": {
                         "anyOf": [
                           {
@@ -625,6 +638,32 @@
                         ],
                         "default": null,
                         "description": "New description, as approved by the user."
+                      },
+                      "endMonth": {
+                        "anyOf": [
+                          {
+                            "maximum": 12,
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Ends the position at this month, with endYear."
+                      },
+                      "endYear": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Ends the position in this year, with endMonth."
                       },
                       "experienceId": {
                         "anyOf": [

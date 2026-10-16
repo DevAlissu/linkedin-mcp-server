@@ -24,6 +24,7 @@ DEFAULT_LIMITS: dict[str, int] = {
     "skill": 80,
     "company": 100,
     "experience_start": 7,
+    "experience_end": 7,
     # The company-page form states 120 for the tagline ("0/120", measured
     # 4 October 2026) and no limit for the name, kept at a company's 100.
     "company_page_name": 100,
@@ -38,6 +39,7 @@ SINGLE_LINE = frozenset(
         "skill",
         "company",
         "experience_start",
+        "experience_end",
         "company_page_name",
         "company_tagline",
     }
@@ -100,6 +102,19 @@ def format_start(month: int, year: int) -> str:
     return f"{month:02d}/{year}"
 
 
+# The end of a role held now: what a change set shows instead of "MM/YYYY".
+PRESENT = "present"
+
+
+def format_end(current: bool | None, month: int | None, year: int | None) -> str:
+    """PRESENT for a role held now, else the end as "MM/YYYY"; "" if unread."""
+    if current:
+        return PRESENT
+    if current is None or month is None or year is None:
+        return ""
+    return format_start(month, year)
+
+
 _BLANK_LINES = re.compile(r"\n[ \t]*\n(?:[ \t]*\n)+")
 
 
@@ -145,6 +160,9 @@ class ExperienceForm:
     company: str | None = None
     start_month: int | None = None
     start_year: int | None = None
+    current: bool | None = None
+    end_month: int | None = None
+    end_year: int | None = None
 
     @property
     def start(self) -> str:
@@ -152,6 +170,11 @@ class ExperienceForm:
         if self.start_month is None or self.start_year is None:
             return ""
         return format_start(self.start_month, self.start_year)
+
+    @property
+    def end(self) -> str:
+        """PRESENT for a role held now, else the end as "MM/YYYY"; "" if unread."""
+        return format_end(self.current, self.end_month, self.end_year)
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,6 +10,7 @@ Locators all come from ``profile_selectors``.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 import logging
@@ -27,8 +28,10 @@ from linkedin_mcp_server.profile_edit.errors import (
 )
 from linkedin_mcp_server.profile_edit.model import (
     ORGANIZATION_SIZES,
+    PRESENT,
     NewCompanyPage,
     NewPosition,
+    format_end,
     format_start,
     ExperienceForm,
     ExperienceSummary,
@@ -333,7 +336,14 @@ class ProfileEditor:
         self._last_notify = "on" if self._notify else "off"
 
     async def _replace(
-        self, loc: Locator, *, expected: str, value: str, field: str, url: str
+        self,
+        loc: Locator,
+        *,
+        expected: str,
+        value: str,
+        field: str,
+        url: str,
+        before_save: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         current = normalize_text((await self._read(loc)).value)
         if current != normalize_text(expected):
@@ -356,6 +366,8 @@ class ProfileEditor:
                 typedLength=len(typed),
                 wantedLength=len(value),
             )
+        if before_save is not None:
+            await before_save()
         await self._save(field, url)
 
     async def _button(self, key: str, scope: Locator | None = None) -> Locator | None:
@@ -465,6 +477,7 @@ class ProfileEditor:
         except ProfileEditError:
             pass  # display only
         start_month, start_year = await self._read_start()
+        current, end_month, end_year = await self._read_end(url)
         return ExperienceForm(
             id=experience_id,
             title=title,
@@ -472,6 +485,9 @@ class ProfileEditor:
             company=company,
             start_month=start_month,
             start_year=start_year,
+            current=current,
+            end_month=end_month,
+            end_year=end_year,
         )
 
     async def list_skills(self) -> list[Skill]:
@@ -556,7 +572,12 @@ class ProfileEditor:
         spec = sel.EXPERIENCE_TITLE if field == "title" else sel.EXPERIENCE_DESCRIPTION
         loc = await self._open_form((url,), spec)
         await self._replace(
-            loc, expected=expected, value=value, field=f"experience {field}", url=url
+            loc,
+            expected=expected,
+            value=value,
+            field=f"experience {field}",
+            url=url,
+            before_save=lambda: self._no_other_role_ended(url),
         )
 
     async def add_skill(self, name: str) -> str:
@@ -646,7 +667,128 @@ class ProfileEditor:
                 "The start date did not take; nothing was saved.",
                 wanted=format_start(month, year),
             )
+        await self._no_other_role_ended(url)
         await self._save("experience start date", url)
+
+    # ── role state: "I currently work here" and the end date ───────────────
+    async def _role_boxes(
+        self, url: str
+    ) -> tuple[Locator | None, list[dict[str, Any]]]:
+        """The current-role checkbox, and every other unlabelled one.
+
+        A form for a role held now also lists one "end current position as of
+        now - <title>" box per other role held now, unlabelled like the
+        current-role box. The current-role box is the one whose text the locale
+        table names, or the first unlabelled box where there is no table.
+        """
+        boxes = self._dialog().locator(sel.CURRENT_ROLE_CHECKBOX)
+        unlabelled = [
+            b
+            for b in await self._dialog().evaluate(sel.ROLE_BOXES_JS)
+            if not b["labelled"]
+        ]
+        if not unlabelled:
+            return None, []
+        names = self._labels.get("current_role", ())
+        current = (
+            next((b for b in unlabelled if b["text"] in names), None)
+            if names
+            else unlabelled[0]
+        )
+        if current is None:
+            raise await self._not_found(
+                "current role checkbox", url, "no box reads the measured label"
+            )
+        return boxes.nth(current["i"]), [b for b in unlabelled if b is not current]
+
+    async def _no_other_role_ended(self, url: str) -> None:
+        """Refuse to save a form that would also end another role held now."""
+        _, others = await self._role_boxes(url)
+        ending = [b["text"] for b in others if b["checked"]]
+        if ending:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The form would also end another position; nothing was saved.",
+                wouldEnd=ending,
+            )
+
+    async def _read_end(self, url: str) -> tuple[bool | None, int | None, int | None]:
+        """Whether the role is held now, else its end month (1 to 12) and year."""
+        try:
+            box, _ = await self._role_boxes(url)
+        except ProfileEditError:
+            return None, None, None
+        if box is None:
+            return None, None, None
+        if await box.is_checked():
+            return True, None, None
+        try:
+            month = await self._field(sel.END_MONTH, url)
+            year = await self._field(sel.END_YEAR, url)
+        except ProfileEditError:
+            return False, None, None
+        index = await month.evaluate("(el) => el.selectedIndex")
+        text = (
+            await year.evaluate(
+                "(el) => (el.options[el.selectedIndex] || {}).textContent || ''"
+            )
+        ).strip()
+        return False, (index or None), (int(text) if text.isdigit() else None)
+
+    async def _set_checked(self, box: Locator, on: bool, what: str) -> None:
+        if await box.is_checked() != on:
+            try:
+                await box.set_checked(on, timeout=_FIELD_TIMEOUT_MS)
+            except Exception:
+                # A visually hidden box: toggle it the way the page does.
+                await box.evaluate(
+                    "(el, on) => { if (el.checked !== on) el.click(); }", on
+                )
+        if await box.is_checked() != on:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                f"The {what} box could not be set; nothing was saved.",
+            )
+
+    async def write_experience_end(
+        self, experience_id: str, *, expected: str, end: str
+    ) -> None:
+        """End a position at "MM/YYYY", or make it a role held now (PRESENT).
+
+        The "before" is read from the form first; nothing else on it changes,
+        and a form that would also end another position is never saved.
+        """
+        url = sel.experience_form_url(await self._vanity_name(), experience_id)
+        await self._open_form((url,), sel.EXPERIENCE_TITLE)
+        current = format_end(*await self._read_end(url))
+        if current != expected:
+            raise ProfileEditError(
+                ProfileEditErrorCode.STALE_CHANGE_SET,
+                "The end date on LinkedIn no longer matches the change set; "
+                "nothing was changed.",
+                field="end",
+                expected=expected,
+                actual=current,
+            )
+        await self._settle_notify_switch("experience end date")
+        box, _ = await self._role_boxes(url)
+        if box is None:
+            raise await self._not_found("current role checkbox", url, "not in the form")
+        await self._set_checked(box, end == PRESENT, "current role")
+        if end != PRESENT:
+            month, year = (int(x) for x in end.split("/"))
+            month_box = await self._field(sel.END_MONTH, url)
+            year_box = await self._field(sel.END_YEAR, url)
+            await month_box.select_option(index=month)
+            await year_box.select_option(label=str(year))
+        if format_end(*await self._read_end(url)) != end:
+            raise ProfileEditError(
+                ProfileEditErrorCode.LINKEDIN_SAVE_FAILED,
+                "The end date did not take; nothing was saved.",
+                wanted=end,
+            )
+        await self._no_other_role_ended(url)
+        await self._save("experience end date", url)
 
     async def add_experience(
         self, position: NewPosition, *, keep_headline: str
